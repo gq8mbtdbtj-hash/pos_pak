@@ -1,0 +1,17 @@
+pub mod backup;
+pub mod crypto;
+pub mod db_crypto;
+pub mod debt;
+pub mod finance;
+pub mod git_config_bundle;
+pub mod git_sync;
+pub mod habit;
+pub mod knowledge;
+pub mod profile;
+pub mod quick_capture;
+pub mod quick_note;
+pub mod remember;
+pub mod search;
+pub mod sync_pack;
+pub mod task;
+pub mod vault;
