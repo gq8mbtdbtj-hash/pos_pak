@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import "./App.css";
 import TitleBar from "./components/TitleBar";
 import UnlockGate from "./components/UnlockGate";
 import DebtReminderPopups from "./components/DebtReminderPopups";
+import { ToastHost } from "./components/Toast";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
 import Habits from "./pages/Habits";
@@ -12,24 +13,48 @@ import Knowledge from "./pages/Knowledge";
 import Search from "./pages/Search";
 import Settings from "./pages/Settings";
 import type { VaultStatus } from "./services/api";
+import { isMobile } from "./lib/platform";
+import { refreshLocalReminders } from "./lib/reminders";
+import { useTabSwipe } from "./lib/useTabSwipe";
 
 const PAGES = [
-  { id: "dashboard", label: "首页" },
-  { id: "tasks", label: "任务" },
-  { id: "habits", label: "习惯" },
-  { id: "finance", label: "记账" },
-  { id: "debts", label: "外债" },
-  { id: "knowledge", label: "知识库" },
-  { id: "search", label: "搜索" },
-  { id: "settings", label: "设置" },
+  { id: "dashboard", label: "首页", mobile: true },
+  { id: "tasks", label: "任务", mobile: true },
+  { id: "habits", label: "养成", mobile: true },
+  { id: "finance", label: "记账", mobile: true },
+  { id: "knowledge", label: "知识库", mobile: true },
+  { id: "search", label: "搜索", mobile: false },
+  { id: "settings", label: "设置", mobile: true },
 ] as const;
 
-type PageId = (typeof PAGES)[number]["id"];
+type NavPageId = (typeof PAGES)[number]["id"];
+/** 外债挂在记账下，不进主导航 */
+type PageId = NavPageId | "debts";
 
 function App() {
   const [page, setPage] = useState<PageId>("dashboard");
   const [unlocked, setUnlocked] = useState(false);
   const [, setVaultStatus] = useState<VaultStatus | null>(null);
+  const mobile = useMemo(() => isMobile(), []);
+
+  const navPages = useMemo(
+    () => (mobile ? PAGES.filter((p) => p.mobile) : [...PAGES]),
+    [mobile],
+  );
+
+  const mobileTabIds = useMemo(
+    () => navPages.map((p) => p.id) as NavPageId[],
+    [navPages],
+  );
+
+  const navActive = page === "debts" ? "finance" : page;
+
+  const tabSwipe = useTabSwipe({
+    enabled: mobile && unlocked,
+    tabs: mobileTabIds,
+    active: navActive,
+    onChange: setPage,
+  });
 
   const renderPage = () => {
     switch (page) {
@@ -40,9 +65,9 @@ function App() {
       case "habits":
         return <Habits />;
       case "finance":
-        return <Finance />;
+        return <Finance onNavigate={setPage} />;
       case "debts":
-        return <Debts />;
+        return <Debts onNavigate={setPage} />;
       case "knowledge":
         return <Knowledge />;
       case "search":
@@ -60,39 +85,73 @@ function App() {
   };
 
   return (
-    <div className="app">
-      <TitleBar />
+    <div className={`app ${mobile ? "app--mobile" : "app--desktop"}`}>
+      {!mobile && <TitleBar />}
       {!unlocked ? (
         <UnlockGate
-          onUnlocked={(s) => {
+          onUnlocked={async (s) => {
             setVaultStatus(s);
             setUnlocked(true);
+            await refreshLocalReminders();
           }}
         />
       ) : (
         <div className="app-body">
-          <aside className="sidebar">
-            <div className="brand">
-              <span className="brand-mark" aria-hidden />
-              <h1>Personal OS</h1>
-              <p>Local-first life OS</p>
+          {!mobile && (
+            <aside className="sidebar">
+              <div className="brand">
+                <span className="brand-mark" aria-hidden />
+                <h1>Personal OS</h1>
+                <p>Local-first life OS</p>
+              </div>
+              <nav>
+                {PAGES.map((p) => (
+                  <button
+                    key={p.id}
+                    className={navActive === p.id ? "active" : ""}
+                    onClick={() => setPage(p.id)}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </nav>
+            </aside>
+          )}
+          <main
+            className={`main${
+              ["dashboard", "tasks", "habits", "finance", "knowledge"].includes(page)
+                ? " main--dock"
+                : ""
+            }`}
+            {...(mobile ? tabSwipe : {})}
+          >
+            {/* key forces remount when switching tabs — recovers from page render crashes after HMR */}
+            <div key={page} className="page-host">
+              {renderPage()}
             </div>
-            <nav>
-              {PAGES.map((p) => (
-                <button
-                  key={p.id}
-                  className={page === p.id ? "active" : ""}
-                  onClick={() => setPage(p.id)}
-                >
-                  {p.label}
-                </button>
-              ))}
+          </main>
+          {mobile && (
+            <nav className="bottom-nav" aria-label="主导航">
+              {navPages.map((p) => {
+                const active = navActive === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={active ? "active" : ""}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => setPage(p.id)}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
             </nav>
-          </aside>
-          <main className="main">{renderPage()}</main>
+          )}
           <DebtReminderPopups enabled={unlocked} />
         </div>
       )}
+      <ToastHost />
     </div>
   );
 }

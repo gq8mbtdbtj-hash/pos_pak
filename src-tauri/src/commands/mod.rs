@@ -7,6 +7,9 @@ use crate::models::finance::{
     CreateTransactionInput, FinanceSummary, Transaction, UpdateTransactionInput,
 };
 use crate::models::habit::{CreateHabitInput, HabitWithStats};
+use crate::models::goal::{
+    CreateGoalInput, CreateMilestoneInput, Goal, GoalDetail, UpdateGoalInput,
+};
 use crate::models::knowledge::{
     CreateKnowledgeInput, KnowledgeFile, KnowledgeTreeNode, UpdateKnowledgeInput,
 };
@@ -18,12 +21,14 @@ use crate::services::debt::DebtService;
 use crate::services::finance::FinanceService;
 use crate::services::git_sync::{GitSyncService, SyncPullResult};
 use crate::services::habit::HabitService;
+use crate::services::goal::GoalService;
 use crate::services::knowledge::KnowledgeService;
 use crate::services::profile::ProfileService;
 use crate::services::quick_capture::{parse_quick_capture, QuickCaptureResult};
 use crate::services::quick_note::QuickNoteService;
 use crate::services::remember;
 use crate::services::search::SearchService;
+use crate::services::sync_https::HttpsGitHostTransport;
 use crate::services::sync_pack::SyncPackService;
 use crate::services::task::TaskService;
 use crate::services::vault::{VaultService, VaultStatus};
@@ -31,13 +36,16 @@ use crate::AppState;
 use serde::Serialize;
 use tauri::State;
 
-fn remember_mask() -> Option<String> {
-    remember::load().ok().flatten().map(|r| r.password_mask)
+fn remember_mask(state: &AppState) -> Option<String> {
+    remember::load(&state.root_dir)
+        .ok()
+        .flatten()
+        .map(|r| r.password_mask)
 }
 
 fn current_status(state: &AppState) -> AppResult<VaultStatus> {
-    let can_auto = remember::exists();
-    let mask = remember_mask();
+    let can_auto = remember::exists(&state.root_dir);
+    let mask = remember_mask(state);
     if state.is_unlocked() {
         return state.with_session(|s| {
             VaultService::new(&s.data_dir).status_with_meta(
@@ -107,19 +115,11 @@ pub fn vault_logout(state: State<AppState>) -> AppResult<VaultStatus> {
     current_status(&state)
 }
 
-/// Push sync if configured, then seal DB. Remember file is kept for next auto-unlock.
+/// Seal DB quickly on exit. Sync push is intentional (Settings), not on close —
+/// blocking upload made the app feel frozen.
 pub fn run_prepare_exit(state: &AppState) -> AppResult<()> {
     if !state.is_unlocked() {
         return Ok(());
-    }
-    let configured = state
-        .with_session(|s| {
-            let v = VaultService::new(&s.data_dir).load()?;
-            Ok(v.active_remote().map(|r| r.is_configured()).unwrap_or(false))
-        })
-        .unwrap_or(false);
-    if configured {
-        let _ = do_sync_push(state);
     }
     let _ = state.lock();
     Ok(())
@@ -192,6 +192,18 @@ fn refresh_session_vault(state: &AppState) {
     if let Ok(mut guard) = state.session.lock() {
         if let Some(session) = guard.as_mut() {
             if let Ok(v) = VaultService::new(&session.data_dir).load() {
+                // Prefer portable sync key stored in vault (from Git config import).
+                let _ = VaultService::apply_portable_sync_key(&v, &mut session.keys);
+                // Fallback: re-derive from remembered password + sync salt.
+                if v.sync_key_wrapped_b64.is_none() {
+                    if let Ok(Some(saved)) = remember::load(&state.root_dir) {
+                        if let Ok((_, keys)) =
+                            VaultService::new(&session.data_dir).unlock(&saved.password)
+                        {
+                            session.keys = keys;
+                        }
+                    }
+                }
                 session.vault = v;
             }
         }
@@ -451,26 +463,29 @@ pub fn sync_test_connection(
                 })?
         };
 
-        let git = GitSyncService::new(&session.data_dir);
-        let msg = git.test_connection(&remote, &token)?;
+        let transport = HttpsGitHostTransport::new();
+        let msg = transport.test_connection(&remote, &token)?;
         Ok(format!("{msg}。确认无误后可点击「保存配置」"))
     })
 }
 
 fn do_sync_pull(state: &AppState) -> AppResult<SyncPullResult> {
-    let result = state.with_session(|session| {
+    let (result, pulled) = state.with_session(|session| {
         let vault_svc = VaultService::new(&session.data_dir);
         let vault = vault_svc.load()?;
         let remote = vault.active_remote()?.clone();
         let pat = vault_svc
             .decrypt_remote_pat(&remote, &session.keys)?
             .ok_or_else(|| crate::error::AppError::Other("未配置 PAT".into()))?;
-        let git = GitSyncService::new(&session.data_dir);
-        git.pull(&remote, &pat)
+        let local_hash = vault.last_content_hash.clone();
+        let transport = HttpsGitHostTransport::new();
+        transport.pull_result(&remote, &pat, local_hash.as_deref())
     })?;
 
-    if result.status == "updated" || result.status == "up_to_date" {
-        state.apply_remote_pack_if_present()?;
+    if result.status == "updated" {
+        if let Some(pulled) = pulled {
+            state.apply_remote_pack_bytes(&pulled.ciphertext, &pulled.manifest)?;
+        }
     }
     Ok(result)
 }
@@ -482,17 +497,10 @@ pub fn sync_pull(state: State<AppState>) -> AppResult<SyncPullResult> {
 
 #[tauri::command]
 pub fn sync_resolve_commit(state: State<AppState>, commit_id: String) -> AppResult<SyncPullResult> {
-    state.with_session(|session| {
-        let git = GitSyncService::new(&session.data_dir);
-        git.resolve_with_commit(&commit_id)
-    })?;
-    state.apply_remote_pack_if_present()?;
-    Ok(SyncPullResult {
-        status: "updated".into(),
-        revision: Some(commit_id),
-        content_hash: None,
-        conflict: None,
-    })
+    let _ = (state, commit_id);
+    Err(crate::error::AppError::Other(
+        "当前为 HTTPS 快照同步，无需选择提交；请使用「立即拉取 / 立即推送」".into(),
+    ))
 }
 
 fn do_sync_push(state: &AppState) -> AppResult<SyncPullResult> {
@@ -516,34 +524,46 @@ fn do_sync_push(state: &AppState) -> AppResult<SyncPullResult> {
         let (ciphertext, manifest) =
             pack.build_encrypted_pack(&session.keys.sync_key, &vault.device_id)?;
 
-        if vault
-            .last_content_hash
-            .as_deref()
-            .is_some_and(|h| h == manifest.content_hash)
-        {
+        let transport = HttpsGitHostTransport::new();
+        // Only skip upload when the *remote* already has this content hash.
+        // Local last_content_hash alone is not enough (e.g. prior failed/partial pushes).
+        let remote_hash = transport.remote_content_hash(&remote, &pat)?;
+        if remote_hash.as_deref() == Some(manifest.content_hash.as_str()) {
+            vault_svc.update_sync_meta(
+                Some(chrono::Utc::now().to_rfc3339()),
+                Some(manifest.revision.clone()),
+                Some(manifest.content_hash.clone()),
+            )?;
             return Ok(SyncPullResult {
                 status: "up_to_date".into(),
-                revision: vault.last_revision.clone(),
+                revision: Some(manifest.revision),
                 content_hash: Some(manifest.content_hash),
                 conflict: None,
             });
         }
 
+        let rev = transport.push_pack(&remote, &pat, &ciphertext, &manifest)?;
+
+        // Verify remote actually has the pack (catches silent/wrong-branch failures).
+        let verified = transport.remote_content_hash(&remote, &pat)?;
+        if verified.as_deref() != Some(manifest.content_hash.as_str()) {
+            return Err(crate::error::AppError::Other(format!(
+                "推送未生效：远端未见 sync/manifest.json（请确认分支为「{}」，Gitee 空仓常见默认分支是 master）",
+                remote.branch
+            )));
+        }
+
         let git = GitSyncService::new(&session.data_dir);
-        git.ensure_repo(&remote, &pat)?;
-        pack.write_pack_files(git.repo_dir(), &ciphertext, &manifest)?;
-        let rev = git.push_pack(
-            &remote,
-            &pat,
-            &format!("sync: {}", &manifest.revision),
-        )?;
+        let _ = std::fs::create_dir_all(git.repo_dir().join("sync"));
+        let _ = pack.write_pack_files(git.repo_dir(), &ciphertext, &manifest);
+
         vault_svc.update_sync_meta(
             Some(chrono::Utc::now().to_rfc3339()),
             Some(rev.clone()),
             Some(manifest.content_hash.clone()),
         )?;
         Ok(SyncPullResult {
-            status: "updated".into(),
+            status: "pushed".into(),
             revision: Some(rev),
             content_hash: Some(manifest.content_hash),
             conflict: None,
@@ -622,9 +642,73 @@ pub fn habit_uncheck(state: State<AppState>, id: String) -> AppResult<()> {
     state.with_session(|s| HabitService::new(&s.db).uncheck(&id, None))
 }
 
+fn reject_mobile_knowledge_edit(platform: Option<&str>) -> AppResult<()> {
+    if platform.is_some_and(|p| p.eq_ignore_ascii_case("mobile")) {
+        return Err(crate::error::AppError::Other(
+            "移动端知识库仅支持查看与问答，编辑请在桌面端操作".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn habit_delete(state: State<AppState>, id: String) -> AppResult<()> {
     state.with_session(|s| HabitService::new(&s.db).delete(&id))
+}
+
+#[tauri::command]
+pub fn goal_list(state: State<AppState>) -> AppResult<Vec<Goal>> {
+    state.with_session(|s| GoalService::new(&s.db).list())
+}
+
+#[tauri::command]
+pub fn goal_detail(state: State<AppState>, id: String) -> AppResult<GoalDetail> {
+    state.with_session(|s| GoalService::new(&s.db).detail(&id))
+}
+
+#[tauri::command]
+pub fn goal_create(state: State<AppState>, input: CreateGoalInput) -> AppResult<Goal> {
+    state.with_session(|s| GoalService::new(&s.db).create(input))
+}
+
+#[tauri::command]
+pub fn goal_update(
+    state: State<AppState>,
+    id: String,
+    input: UpdateGoalInput,
+) -> AppResult<Goal> {
+    state.with_session(|s| GoalService::new(&s.db).update(&id, input))
+}
+
+#[tauri::command]
+pub fn goal_delete(state: State<AppState>, id: String) -> AppResult<()> {
+    state.with_session(|s| GoalService::new(&s.db).delete(&id))
+}
+
+#[tauri::command]
+pub fn goal_add_milestone(
+    state: State<AppState>,
+    goal_id: String,
+    input: CreateMilestoneInput,
+) -> AppResult<GoalDetail> {
+    state.with_session(|s| GoalService::new(&s.db).add_milestone(&goal_id, input))
+}
+
+#[tauri::command]
+pub fn goal_set_milestone_done(
+    state: State<AppState>,
+    milestone_id: String,
+    done: bool,
+) -> AppResult<GoalDetail> {
+    state.with_session(|s| GoalService::new(&s.db).set_milestone_done(&milestone_id, done))
+}
+
+#[tauri::command]
+pub fn goal_delete_milestone(
+    state: State<AppState>,
+    milestone_id: String,
+) -> AppResult<GoalDetail> {
+    state.with_session(|s| GoalService::new(&s.db).delete_milestone(&milestone_id))
 }
 
 #[tauri::command]
@@ -775,7 +859,9 @@ pub fn knowledge_read(state: State<AppState>, path: String) -> AppResult<Knowled
 pub fn knowledge_create(
     state: State<AppState>,
     input: CreateKnowledgeInput,
+    platform: Option<String>,
 ) -> AppResult<KnowledgeFile> {
+    reject_mobile_knowledge_edit(platform.as_deref())?;
     state.with_session(|s| KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.create(input))
 }
 
@@ -784,14 +870,21 @@ pub fn knowledge_update(
     state: State<AppState>,
     path: String,
     input: UpdateKnowledgeInput,
+    platform: Option<String>,
 ) -> AppResult<KnowledgeFile> {
+    reject_mobile_knowledge_edit(platform.as_deref())?;
     state.with_session(|s| {
         KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.update(&path, input)
     })
 }
 
 #[tauri::command]
-pub fn knowledge_delete(state: State<AppState>, path: String) -> AppResult<()> {
+pub fn knowledge_delete(
+    state: State<AppState>,
+    path: String,
+    platform: Option<String>,
+) -> AppResult<()> {
+    reject_mobile_knowledge_edit(platform.as_deref())?;
     state.with_session(|s| KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.delete(&path))
 }
 
@@ -800,7 +893,9 @@ pub fn knowledge_rename(
     state: State<AppState>,
     path: String,
     new_title: String,
+    platform: Option<String>,
 ) -> AppResult<KnowledgeFile> {
+    reject_mobile_knowledge_edit(platform.as_deref())?;
     state.with_session(|s| {
         KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.rename(&path, &new_title)
     })
@@ -829,6 +924,15 @@ pub fn import_backup(state: State<AppState>, input_path: String) -> AppResult<()
     state.import_local_backup(std::path::Path::new(&input_path))
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConfigImportResult {
+    pub imported: bool,
+    pub sync: Option<SyncPullResult>,
+    /// Present when config saved but sync skipped/failed (e.g. Android has no git).
+    pub sync_note: Option<String>,
+}
+
 #[tauri::command]
 pub fn export_git_config(
     state: State<AppState>,
@@ -849,22 +953,92 @@ pub fn export_git_config(
 }
 
 #[tauri::command]
+pub fn export_git_config_text(
+    state: State<AppState>,
+    transfer_password: String,
+) -> AppResult<String> {
+    state.with_session(|s| {
+        let vault_svc = VaultService::new(&s.data_dir);
+        let vault = vault_svc.load()?;
+        crate::services::git_config_bundle::GitConfigBundle::export_text(
+            &vault_svc,
+            &vault,
+            &s.keys,
+            &transfer_password,
+        )
+    })
+}
+
+fn apply_git_config_import(
+    state: &AppState,
+    raw_or_path: &str,
+    transfer_password: &str,
+    from_file: bool,
+) -> AppResult<GitConfigImportResult> {
+    let imported_key = state.with_session(|s| {
+        let vault_svc = VaultService::new(&s.data_dir);
+        let (_vault, sync_key) = if from_file {
+            crate::services::git_config_bundle::GitConfigBundle::import_from_file(
+                &vault_svc,
+                &s.keys,
+                std::path::Path::new(raw_or_path),
+                transfer_password,
+            )?
+        } else {
+            crate::services::git_config_bundle::GitConfigBundle::import_from_text(
+                &vault_svc,
+                &s.keys,
+                raw_or_path,
+                transfer_password,
+            )?
+        };
+        Ok(sync_key)
+    })?;
+
+    // Apply imported sync key to live session immediately.
+    if let Some(sk) = imported_key {
+        if let Ok(mut guard) = state.session.lock() {
+            if let Some(session) = guard.as_mut() {
+                session.keys.sync_key.copy_from_slice(&sk);
+                if let Ok(v) = VaultService::new(&session.data_dir).load() {
+                    session.vault = v;
+                }
+            }
+        }
+    } else {
+        refresh_session_vault(state);
+    }
+
+    match do_sync_pull(state).and_then(|_| do_sync_push(state)) {
+        Ok(sync) => Ok(GitConfigImportResult {
+            imported: true,
+            sync: Some(sync),
+            sync_note: None,
+        }),
+        Err(e) => Ok(GitConfigImportResult {
+            imported: true,
+            sync: None,
+            sync_note: Some(format!(
+                "配置已导入（含同步密钥）。同步未完成：{e}。可稍后在设置里手动拉取"
+            )),
+        }),
+    }
+}
+
+#[tauri::command]
 pub fn import_git_config(
     state: State<AppState>,
     input_path: String,
     transfer_password: String,
-) -> AppResult<SyncPullResult> {
-    state.with_session(|s| {
-        let vault_svc = VaultService::new(&s.data_dir);
-        crate::services::git_config_bundle::GitConfigBundle::import_from_file(
-            &vault_svc,
-            &s.keys,
-            std::path::Path::new(&input_path),
-            &transfer_password,
-        )?;
-        Ok(())
-    })?;
-    refresh_session_vault(&state);
-    // Configure then sync immediately.
-    do_sync_push(&state)
+) -> AppResult<GitConfigImportResult> {
+    apply_git_config_import(&state, &input_path, &transfer_password, true)
+}
+
+#[tauri::command]
+pub fn import_git_config_text(
+    state: State<AppState>,
+    bundle_text: String,
+    transfer_password: String,
+) -> AppResult<GitConfigImportResult> {
+    apply_git_config_import(&state, &bundle_text, &transfer_password, false)
 }

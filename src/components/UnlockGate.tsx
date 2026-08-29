@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, VaultStatus, SyncPullResult, GitCommitInfo } from "../services/api";
+import { toastErr } from "./Toast";
 
 type Props = {
   onUnlocked: (status: VaultStatus) => void;
@@ -9,7 +10,6 @@ export default function UnlockGate({ onUnlocked }: Props) {
   const [mode, setMode] = useState<"loading" | "init" | "unlock" | "create">("loading");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<SyncPullResult | null>(null);
 
@@ -26,7 +26,7 @@ export default function UnlockGate({ onUnlocked }: Props) {
         setMode(auto.initialized ? "unlock" : "init");
       } catch (e) {
         if (cancelled) return;
-        setError(String(e));
+        toastErr(String(e));
         setMode("init");
       }
     })();
@@ -50,23 +50,27 @@ export default function UnlockGate({ onUnlocked }: Props) {
         }
       } catch (e) {
         console.warn("startup pull failed", e);
+        toastErr(String(e));
       }
     }
-    const refreshed = await api.vaultStatus();
-    onUnlocked(refreshed);
+    try {
+      const refreshed = await api.vaultStatus();
+      onUnlocked(refreshed);
+    } catch {
+      onUnlocked(status);
+    }
   };
 
   const submit = async () => {
-    setError("");
     setBusy(true);
     try {
       if (mode === "init" || mode === "create") {
         if (password.length < 8) {
-          setError("主密码至少 8 位");
+          toastErr("主密码至少 8 位");
           return;
         }
         if (password !== confirm) {
-          setError("两次输入不一致");
+          toastErr("两次输入不一致");
           return;
         }
         const status = await api.vaultInit(password);
@@ -76,7 +80,7 @@ export default function UnlockGate({ onUnlocked }: Props) {
         await finishUnlock(status);
       }
     } catch (e) {
-      setError(String(e));
+      toastErr(String(e));
     } finally {
       setBusy(false);
     }
@@ -84,14 +88,13 @@ export default function UnlockGate({ onUnlocked }: Props) {
 
   const resolveCommit = async (commit: GitCommitInfo) => {
     setBusy(true);
-    setError("");
     try {
       await api.syncResolveCommit(commit.id);
       const status = await api.vaultStatus();
       setConflict(null);
       onUnlocked(status);
     } catch (e) {
-      setError(String(e));
+      toastErr(String(e));
     } finally {
       setBusy(false);
     }
@@ -116,7 +119,6 @@ export default function UnlockGate({ onUnlocked }: Props) {
               </li>
             ))}
           </ul>
-          {error && <p className="error-text">{error}</p>}
         </div>
       </div>
     );
@@ -181,7 +183,6 @@ export default function UnlockGate({ onUnlocked }: Props) {
                 setMode("create");
                 setPassword("");
                 setConfirm("");
-                setError("");
               }}
             >
               用新密码创建独立空间
@@ -196,14 +197,12 @@ export default function UnlockGate({ onUnlocked }: Props) {
                 setMode("unlock");
                 setPassword("");
                 setConfirm("");
-                setError("");
               }}
             >
               返回解锁已有空间
             </button>
           )}
         </div>
-        {error && <p className="error-text">{error}</p>}
       </div>
     </div>
   );

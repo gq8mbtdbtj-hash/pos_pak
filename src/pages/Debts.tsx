@@ -7,6 +7,7 @@ import {
   RepaymentMode,
   RepaymentPlan,
 } from "../services/api";
+import { showToast } from "../components/Toast";
 
 function progress(debt: Debt) {
   if (debt.principal <= 0) return 100;
@@ -79,12 +80,15 @@ function previewPlan(
   };
 }
 
-export default function DebtsPage() {
+export default function DebtsPage({
+  onNavigate,
+}: {
+  onNavigate: (page: "finance") => void;
+}) {
   const [overview, setOverview] = useState<DebtOverview | null>(null);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DebtDetail | null>(null);
-  const [message, setMessage] = useState("");
 
   const [name, setName] = useState("");
   const [creditor, setCreditor] = useState("");
@@ -99,9 +103,8 @@ export default function DebtsPage() {
   const [planStart, setPlanStart] = useState("");
   const [editRate, setEditRate] = useState("");
 
-  const flash = (text: string) => {
-    setMessage(text);
-    setTimeout(() => setMessage(""), 2800);
+  const flash = (text: string, kind: "ok" | "err" | "info" = "ok") => {
+    showToast(kind, text);
   };
 
   const load = useCallback(async () => {
@@ -134,7 +137,7 @@ export default function DebtsPage() {
     if (!selectedId) return;
     const annualRate = editRate.trim() ? Number(editRate) : 0;
     if (editRate.trim() && !(annualRate >= 0)) {
-      flash("年利率无效");
+      flash("年利率无效", "err");
       return;
     }
     await api.debtUpdate(selectedId, { annualRate });
@@ -146,7 +149,7 @@ export default function DebtsPage() {
   const createDebt = async () => {
     const p = Number(principal);
     if (!name.trim() || !(p > 0)) {
-      flash("请填写名称和本金");
+      flash("请填写名称和本金", "err");
       return;
     }
     const r = remaining.trim() ? Number(remaining) : undefined;
@@ -184,7 +187,7 @@ export default function DebtsPage() {
     if (!selectedId) return;
     const amount = Number(payAmount);
     if (!(amount > 0)) {
-      flash("请输入还款金额");
+      flash("请输入还款金额", "err");
       return;
     }
     await api.debtAddPayment(selectedId, { amount, note: "手动还款" });
@@ -230,11 +233,11 @@ export default function DebtsPage() {
     if (!selectedId || !detail) return;
     const termMonths = Number(planTerm);
     if (!(termMonths >= 1)) {
-      flash("请输入期数（月）");
+      flash("请输入期数（月）", "err");
       return;
     }
     if (planMode === "interest_balloon" && !(detail.debt.annualRate > 0)) {
-      flash("先息后本需要年利率，请先保存年利率");
+      flash("先息后本需要年利率，请先保存年利率", "err");
       return;
     }
     if (activePlan) {
@@ -252,7 +255,7 @@ export default function DebtsPage() {
       await load();
       await selectDebt(selectedId);
     } catch (e) {
-      flash(String(e));
+      flash(String(e), "err");
     }
   };
 
@@ -329,7 +332,11 @@ export default function DebtsPage() {
           <p className="eyebrow">Liabilities</p>
           <h2 className="page-title">外债</h2>
         </div>
-        {message && <span className="capture-msg">{message}</span>}
+        <div className="segmented segmented--jump" role="group" aria-label="返回记账">
+          <button type="button" onClick={() => onNavigate("finance")}>
+            记账
+          </button>
+        </div>
       </header>
 
       {overview && (
@@ -463,7 +470,7 @@ export default function DebtsPage() {
                     </p>
                   </div>
                   <div className="installment-list">
-                    <div className="installment-row installment-head">
+                    <div className="installment-row installment-head" aria-hidden="true">
                       <span>期</span>
                       <span>日期</span>
                       <span>本金</span>
@@ -474,39 +481,57 @@ export default function DebtsPage() {
                     </div>
                     {activePlan.installments.map((i) => {
                       const overdue = i.status === "pending" && i.dueDate < todayStr;
+                      const statusText =
+                        i.status === "paid"
+                          ? "已还"
+                          : i.status === "skipped"
+                            ? "跳过"
+                            : overdue
+                              ? "逾期"
+                              : "待还";
                       return (
                         <div
                           key={i.id}
                           className={`installment-row ${i.status}${overdue ? " overdue" : ""}`}
                         >
-                          <span>#{i.sequence}</span>
-                          <span>{i.dueDate}</span>
-                          <span>¥{money(i.principalAmount ?? 0)}</span>
-                          <span>¥{money(i.interestAmount ?? 0)}</span>
-                          <strong>¥{money(i.amount)}</strong>
-                          <span className="muted">
-                            {i.status === "paid"
-                              ? "已还"
-                              : i.status === "skipped"
-                                ? "跳过"
-                                : overdue
-                                  ? "逾期"
-                                  : "待还"}
-                          </span>
+                          <div className="installment-row__top">
+                            <strong className="installment-row__seq">#{i.sequence}</strong>
+                            <span className="installment-row__date">{i.dueDate}</span>
+                            <span
+                              className={`installment-row__status${overdue ? " is-overdue" : ""}`}
+                            >
+                              {statusText}
+                            </span>
+                          </div>
+                          <div className="installment-row__amounts">
+                            <span>
+                              <em>本金</em>¥{money(i.principalAmount ?? 0)}
+                            </span>
+                            <span>
+                              <em>利息</em>¥{money(i.interestAmount ?? 0)}
+                            </span>
+                            <strong>
+                              <em>合计</em>¥{money(i.amount)}
+                            </strong>
+                          </div>
                           {i.status === "pending" ? (
-                            <button className="btn" type="button" onClick={() => payInstallment(i.id)}>
+                            <button
+                              className="btn installment-row__action"
+                              type="button"
+                              onClick={() => payInstallment(i.id)}
+                            >
                               还这期
                             </button>
-                          ) : (
-                            <span />
-                          )}
+                          ) : null}
                         </div>
                       );
                     })}
                   </div>
                 </div>
               ) : (
-                <p className="empty-state compact">尚未生成还款计划，请在下方配置后生成。</p>
+                <p className="empty-state compact">
+                  尚未生成还款计划，请在下方配置后生成。
+                </p>
               )}
 
               {detail.payments.length > 0 && (

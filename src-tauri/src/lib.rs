@@ -17,6 +17,7 @@ pub use state::AppState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_data = app
                 .path()
@@ -73,6 +74,14 @@ pub fn run() {
             commands::habit_check_in,
             commands::habit_uncheck,
             commands::habit_delete,
+            commands::goal_list,
+            commands::goal_detail,
+            commands::goal_create,
+            commands::goal_update,
+            commands::goal_delete,
+            commands::goal_add_milestone,
+            commands::goal_set_milestone_done,
+            commands::goal_delete_milestone,
             commands::finance_create,
             commands::finance_quick_add,
             commands::finance_update,
@@ -103,7 +112,9 @@ pub fn run() {
             commands::export_backup,
             commands::import_backup,
             commands::export_git_config,
+            commands::export_git_config_text,
             commands::import_git_config,
+            commands::import_git_config_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -193,6 +193,29 @@ impl Database {
                     principal_amount REAL NOT NULL DEFAULT 0,
                     interest_amount REAL NOT NULL DEFAULT 0
                 );
+
+                CREATE TABLE IF NOT EXISTS goals (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    note TEXT,
+                    target_date TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS goal_milestones (
+                    id TEXT PRIMARY KEY,
+                    goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    due_date TEXT,
+                    done INTEGER NOT NULL DEFAULT 0,
+                    task_id TEXT,
+                    habit_id TEXT,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
                 ",
             )?;
             // Existing DBs created before plan modes / principal-interest split.

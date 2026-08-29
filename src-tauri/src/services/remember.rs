@@ -1,4 +1,4 @@
-//! Remember last unlock in temp: password stored AES-wrapped with a device-local key (not plaintext).
+//! Remember last unlock under app data (not OS temp — Android `/tmp` is not writable).
 
 use crate::error::{AppError, AppResult};
 use crate::services::crypto::{decrypt, encrypt, KEY_LEN};
@@ -6,7 +6,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const REMEMBER_FILE: &str = "personal-os-session.v1.json";
 
@@ -29,16 +29,22 @@ pub struct RememberedSession {
     pub password_mask: String,
 }
 
-pub fn remember_path() -> PathBuf {
+pub fn remember_path(root_dir: &Path) -> PathBuf {
+    root_dir.join(REMEMBER_FILE)
+}
+
+/// Legacy location used before app-data storage (desktop only; Android cannot write here).
+fn legacy_temp_path() -> PathBuf {
     std::env::temp_dir().join(REMEMBER_FILE)
 }
 
-pub fn exists() -> bool {
-    remember_path().exists()
+pub fn exists(root_dir: &Path) -> bool {
+    remember_path(root_dir).exists() || legacy_temp_path().exists()
 }
 
-pub fn clear() {
-    let _ = fs::remove_file(remember_path());
+pub fn clear(root_dir: &Path) {
+    let _ = fs::remove_file(remember_path(root_dir));
+    let _ = fs::remove_file(legacy_temp_path());
 }
 
 pub fn mask_password(password: &str) -> String {
@@ -55,7 +61,105 @@ pub fn mask_password(password: &str) -> String {
     format!("{head}{}{tail}", "*".repeat(n.saturating_sub(4)))
 }
 
-fn device_key() -> [u8; KEY_LEN] {
+fn device_key(root_dir: &Path) -> [u8; KEY_LEN] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"personal-os/remember-session-v1");
+    for key in ["USERNAME", "USER", "COMPUTERNAME", "HOSTNAME"] {
+        if let Ok(v) = std::env::var(key) {
+            hasher.update(v.as_bytes());
+        }
+    }
+    // Bind to app root so mobile (no USERNAME) still gets a stable key.
+    hasher.update(root_dir.to_string_lossy().as_bytes());
+    let dig = hasher.finalize();
+    let mut key = [0u8; KEY_LEN];
+    key.copy_from_slice(&dig);
+    key
+}
+
+pub fn save(root_dir: &Path, profile_id: &str, password: &str) -> AppResult<()> {
+    let key = device_key(root_dir);
+    let wrapped = encrypt(&key, password.as_bytes())?;
+    let file = RememberFile {
+        version: 1,
+        profile_id: profile_id.to_string(),
+        wrapped_password_b64: B64.encode(wrapped),
+        password_mask: mask_password(password),
+    };
+    let path = remember_path(root_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(&file)?)?;
+    // Drop legacy temp copy if present.
+    let _ = fs::remove_file(legacy_temp_path());
+    Ok(())
+}
+
+fn load_from(path: &Path, root_dir: &Path) -> AppResult<Option<RememberedSession>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+    let file: RememberFile = match serde_json::from_str(&raw) {
+        Ok(f) => f,
+        Err(_) => return Ok(None),
+    };
+    let blob = match B64.decode(file.wrapped_password_b64.as_bytes()) {
+        Ok(b) => b,
+        Err(_) => return Ok(None),
+    };
+    let key = device_key(root_dir);
+    let plain = match decrypt(&key, &blob) {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
+    let password = String::from_utf8(plain).map_err(|_| {
+        AppError::Other("本地会话已失效".into())
+    })?;
+    Ok(Some(RememberedSession {
+        profile_id: file.profile_id,
+        password,
+        password_mask: file.password_mask,
+    }))
+}
+
+pub fn load(root_dir: &Path) -> AppResult<Option<RememberedSession>> {
+    if let Some(s) = load_from(&remember_path(root_dir), root_dir)? {
+        return Ok(Some(s));
+    }
+    // Migrate legacy temp session (desktop) into app data when possible.
+    let legacy = legacy_temp_path();
+    // Legacy files were keyed with temp_dir in the hash — try old key shape once.
+    if let Some(s) = load_legacy_temp(root_dir)? {
+        let _ = save(root_dir, &s.profile_id, &s.password);
+        let _ = fs::remove_file(&legacy);
+        return Ok(Some(s));
+    }
+    Ok(None)
+}
+
+fn load_legacy_temp(root_dir: &Path) -> AppResult<Option<RememberedSession>> {
+    let path = legacy_temp_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+    let file: RememberFile = match serde_json::from_str(&raw) {
+        Ok(f) => f,
+        Err(_) => return Ok(None),
+    };
+    let blob = match B64.decode(file.wrapped_password_b64.as_bytes()) {
+        Ok(b) => b,
+        Err(_) => return Ok(None),
+    };
+    // Old device_key used temp_dir instead of root_dir.
     let mut hasher = Sha256::new();
     hasher.update(b"personal-os/remember-session-v1");
     for key in ["USERNAME", "USER", "COMPUTERNAME", "HOSTNAME"] {
@@ -67,61 +171,17 @@ fn device_key() -> [u8; KEY_LEN] {
     let dig = hasher.finalize();
     let mut key = [0u8; KEY_LEN];
     key.copy_from_slice(&dig);
-    key
-}
-
-pub fn save(profile_id: &str, password: &str) -> AppResult<()> {
-    let key = device_key();
-    let wrapped = encrypt(&key, password.as_bytes())?;
-    let file = RememberFile {
-        version: 1,
-        profile_id: profile_id.to_string(),
-        wrapped_password_b64: B64.encode(wrapped),
-        password_mask: mask_password(password),
-    };
-    let path = remember_path();
-    fs::write(&path, serde_json::to_string_pretty(&file)?)?;
-    Ok(())
-}
-
-pub fn load() -> AppResult<Option<RememberedSession>> {
-    let path = remember_path();
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = match fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => {
-            clear();
-            return Ok(None);
-        }
-    };
-    let file: RememberFile = match serde_json::from_str(&raw) {
-        Ok(f) => f,
-        Err(_) => {
-            clear();
-            return Ok(None);
-        }
-    };
-    let blob = match B64.decode(file.wrapped_password_b64.as_bytes()) {
-        Ok(b) => b,
-        Err(_) => {
-            clear();
-            return Ok(None);
-        }
-    };
-    let key = device_key();
     let plain = match decrypt(&key, &blob) {
         Ok(p) => p,
         Err(_) => {
-            clear();
-            return Ok(None);
+            // Fallback: maybe already keyed with root (partial migrate).
+            return load_from(&path, root_dir);
         }
     };
-    let password = String::from_utf8(plain).map_err(|_| {
-        clear();
-        AppError::Other("本地会话已失效".into())
-    })?;
+    let password = match String::from_utf8(plain) {
+        Ok(p) => p,
+        Err(_) => return Ok(None),
+    };
     Ok(Some(RememberedSession {
         profile_id: file.profile_id,
         password,

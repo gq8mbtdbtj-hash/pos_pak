@@ -77,11 +77,15 @@ pub fn derive_keyed(password: &str, salt: &[u8], info: &[u8]) -> AppResult<[u8; 
     derive_raw(password, salt, info)
 }
 
-pub fn derive_keys(password: &str, salt: &[u8]) -> AppResult<DerivedKeys> {
+pub fn derive_keys_split(
+    password: &str,
+    vault_salt: &[u8],
+    sync_salt: &[u8],
+) -> AppResult<DerivedKeys> {
     Ok(DerivedKeys {
-        db_key: derive_raw(password, salt, b"personal-os/db-v1")?,
-        sync_key: derive_raw(password, salt, b"personal-os/sync-v1")?,
-        vault_key: derive_raw(password, salt, b"personal-os/vault-v1")?,
+        db_key: derive_raw(password, vault_salt, b"personal-os/db-v1")?,
+        sync_key: derive_raw(password, sync_salt, b"personal-os/sync-v1")?,
+        vault_key: derive_raw(password, vault_salt, b"personal-os/vault-v1")?,
     })
 }
 
@@ -141,7 +145,7 @@ mod tests {
         let hash = hash_password("correct horse", &salt).unwrap();
         assert!(verify_password("correct horse", &hash).unwrap());
         assert!(!verify_password("wrong", &hash).unwrap());
-        let keys = derive_keys("correct horse", &salt).unwrap();
+        let keys = derive_keys_split("correct horse", &salt, &salt).unwrap();
         let enc = encrypt(&keys.sync_key, b"hello sync").unwrap();
         let dec = decrypt(&keys.sync_key, &enc).unwrap();
         assert_eq!(dec, b"hello sync");

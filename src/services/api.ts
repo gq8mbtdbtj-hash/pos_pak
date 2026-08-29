@@ -1,4 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { detectPlatform } from "../lib/platform";
+
+function clientPlatform() {
+  return detectPlatform();
+}
 
 export interface Task {
   id: string;
@@ -24,6 +29,33 @@ export interface HabitWithStats {
   streak: number;
   completionRate: number;
   checkedToday: boolean;
+}
+
+export interface Goal {
+  id: string;
+  title: string;
+  note?: string;
+  targetDate?: string;
+  status: "active" | "done" | "paused";
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoalMilestone {
+  id: string;
+  goalId: string;
+  title: string;
+  dueDate?: string;
+  done: boolean;
+  taskId?: string;
+  habitId?: string;
+  sortOrder: number;
+}
+
+export interface GoalDetail {
+  goal: Goal;
+  milestones: GoalMilestone[];
 }
 
 export interface Transaction {
@@ -305,6 +337,12 @@ export interface SyncPullResult {
   conflict?: SyncConflict;
 }
 
+export interface GitConfigImportResult {
+  imported: boolean;
+  sync?: SyncPullResult;
+  syncNote?: string;
+}
+
 export const api = {
   getDashboard: () => invoke<DashboardStats>("get_dashboard"),
   quickCaptureParse: (text: string) =>
@@ -324,6 +362,30 @@ export const api = {
   habitCheckIn: (id: string) => invoke<void>("habit_check_in", { id }),
   habitUncheck: (id: string) => invoke<void>("habit_uncheck", { id }),
   habitDelete: (id: string) => invoke<void>("habit_delete", { id }),
+
+  goalList: () => invoke<Goal[]>("goal_list"),
+  goalDetail: (id: string) => invoke<GoalDetail>("goal_detail", { id }),
+  goalCreate: (input: { title: string; note?: string; targetDate?: string }) =>
+    invoke<Goal>("goal_create", { input }),
+  goalUpdate: (
+    id: string,
+    input: {
+      title?: string;
+      note?: string | null;
+      targetDate?: string | null;
+      status?: string;
+      progress?: number;
+    },
+  ) => invoke<Goal>("goal_update", { id, input }),
+  goalDelete: (id: string) => invoke<void>("goal_delete", { id }),
+  goalAddMilestone: (
+    goalId: string,
+    input: { title: string; dueDate?: string; taskId?: string; habitId?: string },
+  ) => invoke<GoalDetail>("goal_add_milestone", { goalId, input }),
+  goalSetMilestoneDone: (milestoneId: string, done: boolean) =>
+    invoke<GoalDetail>("goal_set_milestone_done", { milestoneId, done }),
+  goalDeleteMilestone: (milestoneId: string) =>
+    invoke<GoalDetail>("goal_delete_milestone", { milestoneId }),
 
   financeQuickAdd: (text: string) => invoke<Transaction>("finance_quick_add", { text }),
   financeUpdate: (
@@ -395,9 +457,14 @@ export const api = {
       startDate?: string;
       monthlyAmount?: number;
     },
-  ) => invoke<RepaymentPlan>("debt_create_plan", { id, input }),
+  ) => invoke<RepaymentPlan>("debt_create_plan", {
+    id,
+    input,
+  }),
   debtPayInstallment: (installmentId: string) =>
-    invoke<DebtDetail>("debt_pay_installment", { installmentId }),
+    invoke<DebtDetail>("debt_pay_installment", {
+      installmentId,
+    }),
 
   quickNoteCreate: (input: { content: string; noteType?: string }) =>
     invoke<QuickNote>("quick_note_create", { input }),
@@ -406,10 +473,11 @@ export const api = {
   knowledgeTree: () => invoke<KnowledgeTreeNode>("knowledge_tree"),
   knowledgeRead: (path: string) => invoke<KnowledgeFile>("knowledge_read", { path }),
   knowledgeCreate: (input: { folder: string; title: string; content?: string }) =>
-    invoke<KnowledgeFile>("knowledge_create", { input }),
+    invoke<KnowledgeFile>("knowledge_create", { input, platform: clientPlatform() }),
   knowledgeUpdate: (path: string, input: { content: string; title?: string }) =>
-    invoke<KnowledgeFile>("knowledge_update", { path, input }),
-  knowledgeDelete: (path: string) => invoke<void>("knowledge_delete", { path }),
+    invoke<KnowledgeFile>("knowledge_update", { path, input, platform: clientPlatform() }),
+  knowledgeDelete: (path: string) =>
+    invoke<void>("knowledge_delete", { path, platform: clientPlatform() }),
 
   search: (query: string, limit?: number) =>
     invoke<SearchResult[]>("search_query", { query, limit }),
@@ -488,7 +556,17 @@ export const api = {
     invoke<SyncPullResult>("sync_resolve_commit", { commitId }),
   exportGitConfig: (outputPath: string, transferPassword: string) =>
     invoke<void>("export_git_config", { outputPath, transferPassword }),
+  exportGitConfigText: (transferPassword: string) =>
+    invoke<string>("export_git_config_text", { transferPassword }),
   importGitConfig: (inputPath: string, transferPassword: string) =>
-    invoke<SyncPullResult>("import_git_config", { inputPath, transferPassword }),
+    invoke<GitConfigImportResult>("import_git_config", {
+      inputPath,
+      transferPassword,
+    }),
+  importGitConfigText: (bundleText: string, transferPassword: string) =>
+    invoke<GitConfigImportResult>("import_git_config_text", {
+      bundleText,
+      transferPassword,
+    }),
 };
 

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryPie from "../components/CategoryPie";
 import FinanceChart from "../components/FinanceChart";
+import InputDock from "../components/InputDock";
 import {
   api,
   ChartBucket,
   DashboardStats,
   FinanceSummary,
+  Goal,
   HabitWithStats,
   Task,
 } from "../services/api";
@@ -47,21 +49,24 @@ export default function Dashboard({ onNavigate }: Props) {
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<HabitWithStats[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [capture, setCapture] = useState("");
   const [message, setMessage] = useState("");
   const [chartView, setChartView] = useState<"trend" | "category">("trend");
 
   const load = useCallback(async () => {
-    const [s, sum, t, h] = await Promise.all([
+    const [s, sum, t, h, g] = await Promise.all([
       api.getDashboard(),
       api.financeSummary(),
       api.taskListToday(),
       api.habitList(),
+      api.goalList(),
     ]);
     setStats(s);
     setSummary(sum);
     setTasks(t);
     setHabits(h);
+    setGoals(g.filter((x) => x.status === "active").slice(0, 4));
   }, []);
 
   useEffect(() => {
@@ -111,172 +116,192 @@ export default function Dashboard({ onNavigate }: Props) {
 
   return (
     <div className="page page-dashboard">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Today</p>
-          <h2 className="page-title">今天</h2>
-        </div>
-      </header>
-
-      {stats && (
-        <section className="panel">
-          <div className="fiscal-banner">
-            <div>
-              <span className="muted">当月总体盈亏</span>
-              <strong className={stats.monthNet >= 0 ? "amount-income" : "amount-expense"}>
-                {stats.monthNet >= 0 ? "+" : ""}¥{money(stats.monthNet)}
-              </strong>
-            </div>
-            <div className="fiscal-banner-sub">
-              <span>收入 ¥{money(stats.monthIncome)}</span>
-              <span>支出 ¥{money(stats.monthExpense)}</span>
-              <button type="button" className="linkish" onClick={() => onNavigate("finance")}>
-                记账详情
-              </button>
-            </div>
+      <div className="dash-scroll">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Today</p>
+            <h2 className="page-title">今天</h2>
           </div>
-          <div className="flow-strip finance-flow dash-flow">
-            <div className="flow-stat">
-              <span>任务</span>
-              <strong>
-                {stats.tasksDone} / {stats.tasksTotal}
-              </strong>
-            </div>
-            <div className="flow-stat">
-              <span>习惯</span>
-              <strong>
-                {stats.habitsDone} / {stats.habitsTotal}
-              </strong>
-            </div>
-            <div className="flow-stat">
-              <span>今日消费</span>
-              <strong className="amount-expense">¥{money(stats.todaySpending)}</strong>
-            </div>
-            <div className="flow-stat">
-              <span>外债剩余</span>
-              <strong className="amount-expense">¥{money(stats.debtRemaining ?? 0)}</strong>
-            </div>
-          </div>
-          {(stats.debtMonthlyObligation > 0 || stats.monthsToPayoff) && (
-            <p className="muted dash-debt-hint">
-              计划月供 ¥{money(stats.debtMonthlyObligation ?? 0)}
-              {stats.monthsToPayoff != null ? ` · 预计还 ${stats.monthsToPayoff} 期` : ""}
-              {stats.payoffDate ? ` · 至 ${stats.payoffDate}` : ""}
-              {" · "}
-              <button type="button" className="linkish" onClick={() => onNavigate("debts")}>
-                查看外债
-              </button>
-            </p>
-          )}
-        </section>
-      )}
+        </header>
 
-      {summary && (
-        <section className="panel">
-          <div className="chart-solo">
-            <div className="chart-block chart-block--solo chart-block--dash">
-              <div className="chart-block-title">
-                <div className="segmented chart-view-toggle" role="tablist" aria-label="图表类型">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={chartView === "trend"}
-                    className={chartView === "trend" ? "active" : ""}
-                    onClick={() => setChartView("trend")}
-                  >
-                    本月趋势
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={chartView === "category"}
-                    className={chartView === "category" ? "active" : ""}
-                    onClick={() => setChartView("category")}
-                  >
-                    分类构成
-                  </button>
-                </div>
+        {stats && (
+          <section className="panel">
+            <div className="fiscal-banner">
+              <div>
+                <span className="muted">当月总体盈亏</span>
+                <strong className={stats.monthNet >= 0 ? "amount-income" : "amount-expense"}>
+                  {stats.monthNet >= 0 ? "+" : ""}¥{money(stats.monthNet)}
+                </strong>
+              </div>
+              <div className="fiscal-banner-sub">
+                <span>收入 ¥{money(stats.monthIncome)}</span>
+                <span>支出 ¥{money(stats.monthExpense)}</span>
                 <button type="button" className="linkish" onClick={() => onNavigate("finance")}>
-                  打开记账
+                  记账详情
                 </button>
               </div>
-              {chartView === "trend" ? (
-                <FinanceChart data={chartData} height={280} />
-              ) : (
-                <CategoryPie data={pieData} size="lg" />
-              )}
             </div>
-          </div>
-        </section>
-      )}
+            <div className="flow-strip finance-flow dash-flow">
+              <div className="flow-stat">
+                <span>任务</span>
+                <strong>
+                  {stats.tasksDone} / {stats.tasksTotal}
+                </strong>
+              </div>
+              <div className="flow-stat">
+                <span>习惯</span>
+                <strong>
+                  {stats.habitsDone} / {stats.habitsTotal}
+                </strong>
+              </div>
+              <div className="flow-stat">
+                <span>今日消费</span>
+                <strong className="amount-expense">¥{money(stats.todaySpending)}</strong>
+              </div>
+              <div className="flow-stat">
+                <span>外债剩余</span>
+                <strong className="amount-expense">¥{money(stats.debtRemaining ?? 0)}</strong>
+              </div>
+            </div>
+            {(stats.debtMonthlyObligation > 0 || stats.monthsToPayoff) && (
+              <p className="muted dash-debt-hint">
+                计划月供 ¥{money(stats.debtMonthlyObligation ?? 0)}
+                {stats.monthsToPayoff != null ? ` · 预计还 ${stats.monthsToPayoff} 期` : ""}
+                {stats.payoffDate ? ` · 至 ${stats.payoffDate}` : ""}
+                {" · "}
+                <button type="button" className="linkish" onClick={() => onNavigate("debts")}>
+                  查看外债
+                </button>
+              </p>
+            )}
+          </section>
+        )}
 
-      <section className="panel">
-        <h3 className="section-label">快速记录</h3>
-        <div className="quick-capture">
-          <input
-            placeholder="输入今天发生了什么…… 例如：冰箱卖了36 / 咖啡28地铁4 / 明天9点开会"
-            value={capture}
-            onChange={(e) => setCapture(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleCapture()}
-          />
-          <button className="btn" onClick={handleCapture}>
-            记录
-          </button>
+        {summary && (
+          <section className="panel">
+            <div className="chart-solo">
+              <div className="chart-block chart-block--solo chart-block--dash">
+                <div className="chart-block-title">
+                  <div className="segmented chart-view-toggle" role="tablist" aria-label="图表类型">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={chartView === "trend"}
+                      className={chartView === "trend" ? "active" : ""}
+                      onClick={() => setChartView("trend")}
+                    >
+                      本月趋势
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={chartView === "category"}
+                      className={chartView === "category" ? "active" : ""}
+                      onClick={() => setChartView("category")}
+                    >
+                      分类构成
+                    </button>
+                  </div>
+                  <button type="button" className="linkish" onClick={() => onNavigate("finance")}>
+                    打开记账
+                  </button>
+                </div>
+                {chartView === "trend" ? (
+                  <FinanceChart data={chartData} height={280} />
+                ) : (
+                  <CategoryPie data={pieData} size="lg" />
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <div className="dash-grid-2">
+          <section className="panel">
+            <div className="tx-list-head">
+              <h3 className="section-label">今日任务</h3>
+              <button type="button" className="linkish" onClick={() => onNavigate("tasks")}>
+                管理
+              </button>
+            </div>
+            {tasks.length === 0 ? (
+              <p className="empty-state compact">暂无任务</p>
+            ) : (
+              tasks.map((t) => (
+                <div key={t.id} className="list-item">
+                  <input
+                    type="checkbox"
+                    checked={t.status === "done"}
+                    onChange={() => toggleTask(t)}
+                  />
+                  <span style={{ textDecoration: t.status === "done" ? "line-through" : "none" }}>
+                    {t.title}
+                  </span>
+                </div>
+              ))
+            )}
+          </section>
+
+          <section className="panel">
+            <div className="tx-list-head">
+              <h3 className="section-label">今日习惯</h3>
+              <button type="button" className="linkish" onClick={() => onNavigate("habits")}>
+                管理
+              </button>
+            </div>
+            {habits.length === 0 ? (
+              <p className="empty-state compact">暂无习惯</p>
+            ) : (
+              habits.map((h) => (
+                <div key={h.habit?.id ?? String(h.streak)} className="list-item">
+                  <input
+                    type="checkbox"
+                    checked={!!h.checkedToday}
+                    onChange={() => toggleHabit(h)}
+                    disabled={!h.habit?.id}
+                  />
+                  <span>{h.habit?.name ?? "未命名习惯"}</span>
+                  <span className="muted">连续 {h.streak ?? 0} 天</span>
+                </div>
+              ))
+            )}
+            {goals.length > 0 && (
+              <div className="dash-goals">
+                <h4 className="section-label">进行中目标</h4>
+                {goals.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    className="goal-card"
+                    onClick={() => onNavigate("habits")}
+                  >
+                    <div className="goal-card-top">
+                      <strong>{g.title}</strong>
+                      <span className="muted">{g.progress}%</span>
+                    </div>
+                    <div className="goal-progress">
+                      <div className="goal-progress-fill" style={{ width: `${g.progress}%` }} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
-        {message && <p className="muted hint">{message}</p>}
-      </section>
-
-      <div className="dash-grid-2">
-        <section className="panel">
-          <div className="tx-list-head">
-            <h3 className="section-label">今日任务</h3>
-            <button type="button" className="linkish" onClick={() => onNavigate("tasks")}>
-              管理
-            </button>
-          </div>
-          {tasks.length === 0 ? (
-            <p className="empty-state compact">暂无任务</p>
-          ) : (
-            tasks.map((t) => (
-              <div key={t.id} className="list-item">
-                <input
-                  type="checkbox"
-                  checked={t.status === "done"}
-                  onChange={() => toggleTask(t)}
-                />
-                <span style={{ textDecoration: t.status === "done" ? "line-through" : "none" }}>
-                  {t.title}
-                </span>
-              </div>
-            ))
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="tx-list-head">
-            <h3 className="section-label">今日习惯</h3>
-            <button type="button" className="linkish" onClick={() => onNavigate("habits")}>
-              管理
-            </button>
-          </div>
-          {habits.length === 0 ? (
-            <p className="empty-state compact">暂无习惯</p>
-          ) : (
-            habits.map((h) => (
-              <div key={h.habit?.id ?? String(h.streak)} className="list-item">
-                <input
-                  type="checkbox"
-                  checked={!!h.checkedToday}
-                  onChange={() => toggleHabit(h)}
-                  disabled={!h.habit?.id}
-                />
-                <span>{h.habit?.name ?? "未命名习惯"}</span>
-                <span className="muted">连续 {h.streak ?? 0} 天</span>
-              </div>
-            ))
-          )}
-        </section>
       </div>
+
+      <InputDock label="快速记录" message={message || undefined}>
+        <input
+          placeholder="快速记录… 例：咖啡28 / 明天9点开会"
+          value={capture}
+          onChange={(e) => setCapture(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleCapture()}
+          data-no-tab-swipe
+        />
+        <button className="btn" type="button" onClick={handleCapture}>
+          记录
+        </button>
+      </InputDock>
     </div>
   );
 }

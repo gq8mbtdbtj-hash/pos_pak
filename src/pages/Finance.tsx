@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryPie from "../components/CategoryPie";
 import FinanceChart from "../components/FinanceChart";
+import InputDock from "../components/InputDock";
+import Select from "../components/Select";
 import { api, ChartBucket, FinanceSummary, Transaction } from "../services/api";
 
 type Range = "day" | "week" | "month";
@@ -85,7 +87,11 @@ function timeLabel(iso: string) {
   return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function FinancePage() {
+export default function FinancePage({
+  onNavigate,
+}: {
+  onNavigate: (page: "debts") => void;
+}) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
@@ -95,14 +101,14 @@ export default function FinancePage() {
   const [chartView, setChartView] = useState<"trend" | "category">("trend");
 
   const load = useCallback(async () => {
-    const [txs, sum, cats] = await Promise.all([
-      api.financeList(500),
+    const [sum, cats, txs] = await Promise.all([
       api.financeSummary(),
       api.financeCategories(),
+      api.financeList(500),
     ]);
-    setTransactions(txs);
     setSummary(sum);
     setCategories(cats);
+    setTransactions(txs);
   }, []);
 
   useEffect(() => {
@@ -190,25 +196,32 @@ export default function FinancePage() {
   const monthNet = summary ? summary.month.income - summary.month.expense : 0;
 
   return (
-    <div className="page page-finance">
-      <header className="page-header">
+    <div className="page page-finance page--with-dock">
+      <div className="page-scroll">
+      <header className="page-header page-header--stack">
         <div>
           <p className="eyebrow">Cashflow</p>
           <h2 className="page-title">记账</h2>
         </div>
-        <div className="segmented" role="tablist" aria-label="时间范围">
-          {(["day", "week", "month"] as Range[]).map((r) => (
-            <button
-              key={r}
-              type="button"
-              role="tab"
-              aria-selected={range === r}
-              className={range === r ? "active" : ""}
-              onClick={() => setRange(r)}
-            >
-              {RANGE_LABEL[r]}
+        <div className="page-header-tools">
+          <div className="segmented" role="group" aria-label="时间范围与外债">
+            {(["day", "week", "month"] as Range[]).map((r) => (
+              <button
+                key={r}
+                type="button"
+                role="tab"
+                aria-selected={range === r}
+                className={range === r ? "active" : ""}
+                onClick={() => setRange(r)}
+              >
+                {RANGE_LABEL[r]}
+              </button>
+            ))}
+            <span className="segmented-divider" aria-hidden />
+            <button type="button" onClick={() => onNavigate("debts")}>
+              外债
             </button>
-          ))}
+          </div>
         </div>
       </header>
 
@@ -228,25 +241,6 @@ export default function FinancePage() {
           </div>
         </section>
       )}
-
-      <section className="panel">
-        <h3 className="section-label">快速记录</h3>
-        <div className="quick-capture">
-          <input
-            placeholder="例如：电信欠费 88 / 冰箱卖了36 / 午饭 35 地铁 4"
-            value={quick}
-            onChange={(e) => setQuick(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && quickCapture()}
-          />
-          <button className="btn" onClick={quickCapture}>
-            记录
-          </button>
-        </div>
-        <p className="muted hint">
-          自动识别记账 / 任务 / 快记；下方列表与分析共用当前时间范围。
-          {message && <span className="capture-msg"> · {message}</span>}
-        </p>
-      </section>
 
       {summary && current && (
         <section className="panel">
@@ -386,29 +380,32 @@ export default function FinancePage() {
                         <div className="tx-card-controls">
                           <label className="field compact">
                             <span>类型</span>
-                            <select
+                            <Select
+                              size="sm"
+                              ariaLabel="类型"
                               value={t.transactionType}
-                              onChange={(e) =>
-                                changeType(
-                                  t.id,
-                                  e.target.value as Transaction["transactionType"],
-                                )
+                              options={[
+                                { value: "expense", label: "支出" },
+                                { value: "income", label: "收入" },
+                              ]}
+                              onChange={(v) =>
+                                changeType(t.id, v as Transaction["transactionType"])
                               }
-                            >
-                              <option value="expense">支出</option>
-                              <option value="income">收入</option>
-                            </select>
+                            />
                           </label>
                           <label className="field compact">
                             <span>分类</span>
-                            <input
-                              list="finance-categories"
-                              defaultValue={t.category}
-                              key={`${t.id}-${t.category}`}
-                              onBlur={(e) => changeCategory(t.id, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") e.currentTarget.blur();
-                              }}
+                            <Select
+                              size="sm"
+                              ariaLabel="分类"
+                              value={t.category}
+                              options={[
+                                ...new Set(
+                                  [t.category, ...categories].filter(Boolean),
+                                ),
+                              ].map((c) => ({ value: c, label: c }))}
+                              onChange={(v) => changeCategory(t.id, v)}
+                              placeholder="分类"
                             />
                           </label>
                           <button
@@ -427,12 +424,21 @@ export default function FinancePage() {
             ))}
           </div>
         )}
-        <datalist id="finance-categories">
-          {categories.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
       </section>
+      </div>
+
+      <InputDock label="快速记账" message={message || undefined}>
+        <input
+          placeholder="例如：电信欠费 88 / 冰箱卖了36 / 午饭 35"
+          value={quick}
+          onChange={(e) => setQuick(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && quickCapture()}
+          data-no-tab-swipe
+        />
+        <button className="btn" type="button" onClick={quickCapture}>
+          记录
+        </button>
+      </InputDock>
     </div>
   );
 }

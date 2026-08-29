@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { daysLeftLabel, daysUntilDue } from "../components/DebtReminderPopups";
+import InputDock from "../components/InputDock";
+import Select from "../components/Select";
 import { api, Task } from "../services/api";
 
 type Priority = "high" | "medium" | "low";
@@ -183,88 +185,93 @@ export default function TasksPage() {
   }, [tasks]);
 
   return (
-    <div className="page page-tasks">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Tasks</p>
-          <h2 className="page-title">任务</h2>
-        </div>
-      </header>
+    <div className="page page-tasks page--with-dock">
+      <div className="page-scroll">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Tasks</p>
+            <h2 className="page-title">任务</h2>
+          </div>
+        </header>
 
-      <section className="panel">
-        <div className="form-row">
-          <input
-            placeholder="新任务标题"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-            style={{ flex: 1 }}
-          />
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as Priority)}
-          >
-            <option value="high">高</option>
-            <option value="medium">中</option>
-            <option value="low">低</option>
-          </select>
-          <button className="btn" onClick={create}>
-            添加
-          </button>
-        </div>
-        <p className="muted hint">
+        <p className="muted hint" style={{ marginBottom: "1rem" }}>
           双重分类：日常任务按优先级；还款等周期批量任务仅出现在「近 7 天 / 近 1 月」。剩余天数按今天实时计算；弹窗：提前 3
           天（低）/ 前一天（中）/ 当天 17:00（高）。
         </p>
-      </section>
 
-      <div className="task-dual">
-        <div className="task-dual-col">
-          <p className="eyebrow task-dual-eyebrow">优先级</p>
-          {PRIORITY_ORDER.map((p) => (
+        <div className="task-dual">
+          <div className="task-dual-col">
+            <p className="eyebrow task-dual-eyebrow">优先级</p>
+            {PRIORITY_ORDER.map((p) => (
+              <TaskSection
+                key={p}
+                title={PRIORITY_LABEL[p]}
+                tasks={classified.byPriority[p]}
+                onComplete={complete}
+                onRemove={remove}
+              />
+            ))}
+            {PRIORITY_ORDER.every((p) => classified.byPriority[p].length === 0) && (
+              <p className="empty-state compact">暂无日常任务</p>
+            )}
+          </div>
+
+          <div className="task-dual-col">
+            <p className="eyebrow task-dual-eyebrow">周期批量</p>
             <TaskSection
-              key={p}
-              title={PRIORITY_LABEL[p]}
-              tasks={classified.byPriority[p]}
+              title="近 7 天"
+              hint="含还款提醒等周期性待办"
+              tasks={classified.cycle7}
               onComplete={complete}
               onRemove={remove}
             />
-          ))}
-          {PRIORITY_ORDER.every((p) => classified.byPriority[p].length === 0) && (
-            <p className="empty-state compact">暂无日常任务</p>
-          )}
+            <TaskSection
+              title="近 1 月"
+              hint="7 天以外、一个月以内"
+              tasks={classified.cycle30}
+              onComplete={complete}
+              onRemove={remove}
+            />
+            {classified.cycle7.length === 0 && classified.cycle30.length === 0 && (
+              <p className="empty-state compact">近一个月暂无周期任务</p>
+            )}
+          </div>
         </div>
 
-        <div className="task-dual-col">
-          <p className="eyebrow task-dual-eyebrow">周期批量</p>
-          <TaskSection
-            title="近 7 天"
-            hint="含还款提醒等周期性待办"
-            tasks={classified.cycle7}
-            onComplete={complete}
-            onRemove={remove}
-          />
-          <TaskSection
-            title="近 1 月"
-            hint="7 天以外、一个月以内"
-            tasks={classified.cycle30}
-            onComplete={complete}
-            onRemove={remove}
-          />
-          {classified.cycle7.length === 0 && classified.cycle30.length === 0 && (
-            <p className="empty-state compact">近一个月暂无周期任务</p>
-          )}
-        </div>
+        {classified.done.length > 0 && (
+          <section className="panel" style={{ marginTop: "1rem" }}>
+            <h3 className="section-label">已完成</h3>
+            {classified.done.map((t) => (
+              <TaskRow key={t.id} task={t} onComplete={complete} onRemove={remove} />
+            ))}
+          </section>
+        )}
       </div>
 
-      {classified.done.length > 0 && (
-        <TaskSection
-          title="已完成"
-          tasks={classified.done}
-          onComplete={complete}
-          onRemove={remove}
+      <InputDock label="添加任务">
+        <input
+          placeholder="新任务标题"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+          data-no-tab-swipe
         />
-      )}
+        <Select
+          size="sm"
+          ariaLabel="优先级"
+          noTabSwipe
+          value={priority}
+          options={[
+            { value: "high", label: "高" },
+            { value: "medium", label: "中" },
+            { value: "low", label: "低" },
+          ]}
+          onChange={(v) => setPriority(v as Priority)}
+        />
+        <button className="btn" type="button" onClick={create}>
+          添加
+        </button>
+      </InputDock>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
 use crate::services::crypto::{
-    decrypt, derive_keys, encrypt, generate_salt, hash_password, verify_password, DerivedKeys,
-    SALT_LEN,
+    decrypt, derive_keys_split, encrypt, generate_salt, hash_password, verify_password, DerivedKeys,
+    KEY_LEN, SALT_LEN,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::{Deserialize, Serialize};
@@ -63,6 +63,12 @@ pub struct VaultFile {
     pub version: u32,
     pub device_id: String,
     pub salt_b64: String,
+    /// Shared across devices for sync packs; defaults to `salt_b64` when absent.
+    #[serde(default)]
+    pub sync_salt_b64: Option<String>,
+    /// Portable sync key wrapped with local vault_key (preferred over salt derivation).
+    #[serde(default)]
+    pub sync_key_wrapped_b64: Option<String>,
     pub password_hash: String,
     #[serde(default)]
     pub remotes: Vec<SyncRemoteConfig>,
@@ -77,6 +83,13 @@ pub struct VaultFile {
 }
 
 impl VaultFile {
+    pub fn effective_sync_salt_b64(&self) -> &str {
+        self.sync_salt_b64
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(&self.salt_b64)
+    }
+
     /// Move legacy `sync` into `remotes` and normalize default selection.
     pub fn migrate_legacy(&mut self) -> bool {
         let mut changed = false;
@@ -277,12 +290,16 @@ impl VaultService {
             return Err(AppError::Other("保险库已初始化".into()));
         }
         let salt = generate_salt();
+        let sync_salt = generate_salt();
         let password_hash = hash_password(password, &salt)?;
-        let keys = derive_keys(password, &salt)?;
+        let keys = derive_keys_split(password, &salt, &sync_salt)?;
+        let wrapped = encrypt(&keys.vault_key, &keys.sync_key)?;
         let vault = VaultFile {
             version: 2,
             device_id: Uuid::new_v4().to_string(),
             salt_b64: B64.encode(salt),
+            sync_salt_b64: Some(B64.encode(sync_salt)),
+            sync_key_wrapped_b64: Some(B64.encode(wrapped)),
             password_hash,
             remotes: Vec::new(),
             default_remote_id: None,
@@ -301,8 +318,28 @@ impl VaultService {
             return Err(AppError::Other("主密码错误".into()));
         }
         let salt = decode_salt(&vault.salt_b64)?;
-        let keys = derive_keys(password, &salt)?;
+        let sync_salt = decode_salt(vault.effective_sync_salt_b64())?;
+        let mut keys = derive_keys_split(password, &salt, &sync_salt)?;
+        Self::apply_portable_sync_key(&vault, &mut keys)?;
         Ok((vault, keys))
+    }
+
+    /// Overlay vault-stored portable sync key (from cross-device Git config import).
+    pub fn apply_portable_sync_key(vault: &VaultFile, keys: &mut DerivedKeys) -> AppResult<()> {
+        let Some(wrapped_b64) = vault.sync_key_wrapped_b64.as_deref() else {
+            return Ok(());
+        };
+        let wrapped = B64
+            .decode(wrapped_b64.trim().as_bytes())
+            .map_err(|e| AppError::Other(format!("sync key wrap decode: {e}")))?;
+        let plain = decrypt(&keys.vault_key, &wrapped).map_err(|_| {
+            AppError::Other("本地同步密钥损坏，请重新从电脑导入 Git 配置".into())
+        })?;
+        if plain.len() != KEY_LEN {
+            return Err(AppError::Other("同步密钥长度无效".into()));
+        }
+        keys.sync_key.copy_from_slice(&plain);
+        Ok(())
     }
 
     pub fn change_password(&self, old_password: &str, new_password: &str) -> AppResult<DerivedKeys> {
@@ -316,10 +353,18 @@ impl VaultService {
                 pats.push((remote.id.clone(), token));
             }
         }
+        // Keep the same sync_key so existing remote packs remain readable.
+        let portable_sync = old_keys.sync_key;
         let salt = generate_salt();
+        let sync_salt = decode_salt(vault.effective_sync_salt_b64())?;
         vault.salt_b64 = B64.encode(salt);
+        if vault.sync_salt_b64.is_none() {
+            vault.sync_salt_b64 = Some(B64.encode(&sync_salt));
+        }
         vault.password_hash = hash_password(new_password, &salt)?;
-        let new_keys = derive_keys(new_password, &salt)?;
+        let mut new_keys = derive_keys_split(new_password, &salt, &sync_salt)?;
+        new_keys.sync_key.copy_from_slice(&portable_sync);
+        vault.sync_key_wrapped_b64 = Some(B64.encode(encrypt(&new_keys.vault_key, &portable_sync)?));
         for (id, token) in pats {
             let remote = vault.remote_by_id_mut(&id)?;
             Self::encrypt_pat_into_remote(remote, &new_keys, &token)?;
