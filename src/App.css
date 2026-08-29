@@ -1,10 +1,21 @@
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
   animation: app-in 420ms ease-out;
+}
+
+.app--mobile {
+  /* Fill the WebView; native IME padding shrinks WebView above the keyboard. */
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
 }
 
 @keyframes app-in {
@@ -2110,7 +2121,12 @@
 }
 
 .app--mobile .toast-host {
-  bottom: calc(4.35rem + var(--sab, env(safe-area-inset-bottom, 0px)));
+  position: absolute;
+  bottom: calc(1.1rem + var(--sab, env(safe-area-inset-bottom, 0px)));
+}
+
+html[data-keyboard-open] .app--mobile .toast-host {
+  bottom: calc(4.5rem + var(--sab, env(safe-area-inset-bottom, 0px)));
 }
 
 .toast {
@@ -2329,7 +2345,9 @@
 
 .app--mobile .app-body {
   flex-direction: column;
-  min-height: 100dvh;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .app--mobile .sidebar {
@@ -2338,7 +2356,8 @@
 
 .app--mobile .main {
   flex: 1;
-  padding-bottom: calc(4.5rem + var(--sab, env(safe-area-inset-bottom, 0px)));
+  min-height: 0;
+  padding-bottom: 0;
   max-width: none;
   touch-action: pan-y;
 }
@@ -2349,23 +2368,34 @@
 
 .app--mobile .dash-capture-dock {
   margin: 0 -1.75rem 0;
-  padding: 0.55rem 1.75rem calc(4.35rem + var(--sab, env(safe-area-inset-bottom, 0px)));
+  /* Clear in-flow bottom nav; when keyboard is open nav hides — see data-keyboard-open */
+  padding: 0.55rem 1.75rem 0.65rem;
 }
 
 .app--mobile .bottom-nav {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.2rem;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  flex-shrink: 0;
+  left: auto;
+  right: auto;
+  bottom: auto;
   z-index: 40;
   padding: 0.4rem 0.35rem calc(0.4rem + var(--sab, env(safe-area-inset-bottom, 0px)));
   background: rgba(250, 248, 243, 0.97);
   border-top: 1px solid var(--line);
   box-shadow: 0 -6px 20px rgba(20, 28, 24, 0.06);
   backdrop-filter: blur(10px);
+}
+
+/* Keyboard open: keep input dock in the visible area; hide tab bar to free space */
+html[data-keyboard-open] .app--mobile .bottom-nav {
+  display: none;
+}
+
+html[data-keyboard-open] .app--mobile .dash-capture-dock {
+  padding-bottom: calc(0.55rem + var(--sab, env(safe-area-inset-bottom, 0px)));
 }
 
 .app--mobile .bottom-nav button {
@@ -2668,7 +2698,9 @@
 
 .app--mobile .app-body {
   flex-direction: column;
-  min-height: 100dvh;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .app--mobile .sidebar {
@@ -2677,7 +2709,8 @@
 
 .app--mobile .main {
   flex: 1;
-  padding-bottom: calc(4.75rem + var(--sab, env(safe-area-inset-bottom, 0px)));
+  min-height: 0;
+  padding-bottom: 0;
   max-width: none;
   touch-action: pan-y;
 }
@@ -2688,17 +2721,18 @@
 
 .app--mobile .dash-capture-dock {
   margin: 0 -1.75rem 0;
-  padding: 0.55rem 1.75rem calc(4.5rem + var(--sab, env(safe-area-inset-bottom, 0px)));
+  padding: 0.55rem 1.75rem 0.65rem;
 }
 
 .app--mobile .bottom-nav {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.2rem;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  flex-shrink: 0;
+  left: auto;
+  right: auto;
+  bottom: auto;
   z-index: 40;
   padding: 0.4rem 0.35rem calc(0.4rem + var(--sab, env(safe-area-inset-bottom, 0px)));
   background: rgba(250, 248, 243, 0.97);

@@ -30,8 +30,8 @@
 }
 
 body {
-  min-height: 100vh;
-  height: 100vh;
+  min-height: 100%;
+  height: 100%;
   overflow: hidden;
   background:
     radial-gradient(1200px 500px at 10% -10%, #f4f7f0 0%, transparent 55%),
@@ -39,8 +39,12 @@ body {
     linear-gradient(160deg, #edf1ea 0%, #e4ebe6 48%, #dde5df 100%);
 }
 
+html {
+  height: 100%;
+}
+
 #root {
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 

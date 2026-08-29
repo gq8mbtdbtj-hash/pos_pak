@@ -3,10 +3,12 @@ package com.personal.os
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -16,16 +18,19 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
+    // Edge-to-edge + SDK 35+: adjustResize alone will not shrink WebView.
+    // We pad the WebView by IME height so HTML layout sits above the keyboard.
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+
     WindowCompat.getInsetsController(window, window.decorView).apply {
       isAppearanceLightStatusBars = true
       isAppearanceLightNavigationBars = true
     }
 
-    // Fallback if WebView hook is late: pad activity content by system bars.
     val root = findViewById<ViewGroup>(android.R.id.content)
+    // CSS vars only here — do not pad content (would double with WebView padding).
     ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
       applyInsetsToCss(findWebView(v), insets)
-      // Do not pad the root itself — CSS vars drive the bottom tab safe area.
       insets
     }
     ViewCompat.requestApplyInsets(root)
@@ -33,11 +38,43 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
-    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
+      applyImePadding(v, insets)
       applyInsetsToCss(webView, insets)
       insets
     }
+
+    ViewCompat.setWindowInsetsAnimationCallback(
+      webView,
+      object : WindowInsetsAnimationCompat.Callback(
+        WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
+      ) {
+        override fun onProgress(
+          insets: WindowInsetsCompat,
+          runningAnimations: MutableList<WindowInsetsAnimationCompat>,
+        ): WindowInsetsCompat {
+          applyImePadding(webView, insets)
+          applyInsetsToCss(webView, insets)
+          return insets
+        }
+      },
+    )
+
     ViewCompat.requestApplyInsets(webView)
+  }
+
+  /** Shrink WebView above the soft keyboard (required on Android 15+ edge-to-edge). */
+  private fun applyImePadding(target: View, insets: WindowInsetsCompat) {
+    val imeBottom = max(insets.getInsets(WindowInsetsCompat.Type.ime()).bottom, 0)
+    if (target.paddingBottom != imeBottom) {
+      target.setPadding(
+        target.paddingLeft,
+        target.paddingTop,
+        target.paddingRight,
+        imeBottom,
+      )
+    }
   }
 
   private fun applyInsetsToCss(webView: WebView?, insets: WindowInsetsCompat) {
@@ -48,16 +85,13 @@ class MainActivity : TauriActivity() {
     val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
     val density = resources.displayMetrics.density.coerceAtLeast(0.5f)
 
-    val top = max(bars.top, 0)
-    val bottom = max(max(bars.bottom, ime.bottom), 0)
-    val left = max(bars.left, 0)
-    val right = max(bars.right, 0)
-
-    val topPx = (top / density).roundToInt()
-    val bottomPx = (bottom / density).roundToInt()
-    val leftPx = (left / density).roundToInt()
-    val rightPx = (right / density).roundToInt()
+    val topPx = (max(bars.top, 0) / density).roundToInt()
+    val bottomPx = (max(bars.bottom, 0) / density).roundToInt()
+    val imePx = (max(ime.bottom, 0) / density).roundToInt()
+    val leftPx = (max(bars.left, 0) / density).roundToInt()
+    val rightPx = (max(bars.right, 0) / density).roundToInt()
     val navMode = detectNavMode(bottomPx)
+    val keyboardOpen = if (imePx > 72) "1" else ""
 
     val script =
       """
@@ -65,19 +99,17 @@ class MainActivity : TauriActivity() {
         var r = document.documentElement;
         r.style.setProperty('--sat', '${topPx}px');
         r.style.setProperty('--sab', '${bottomPx}px');
+        r.style.setProperty('--ime', '${imePx}px');
         r.style.setProperty('--sal', '${leftPx}px');
         r.style.setProperty('--sar', '${rightPx}px');
         r.dataset.androidNav = '${navMode}';
+        if ('${keyboardOpen}' === '1') r.dataset.keyboardOpen = '1';
+        else delete r.dataset.keyboardOpen;
       })();
       """.trimIndent()
     webView.post { webView.evaluateJavascript(script, null) }
   }
 
-  /**
-   * Prefer AOSP config_navBarInteractionMode when present:
-   * 0 = 3-button, 1 = 2-button, 2 = gesture.
-   * Fallback: taller bottom inset ⇒ buttons.
-   */
   private fun detectNavMode(bottomInsetDp: Int): String {
     val id = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
     if (id > 0) {

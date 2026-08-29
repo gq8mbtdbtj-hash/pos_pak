@@ -49,7 +49,7 @@ Android 工程已改用腾讯云加速：
 
 ## 系统导航（手势 / 三段式）
 
-`MainActivity` 在全面屏边到边模式下读取 `WindowInsets`，写入 CSS 变量 `--sab`（底）/`--sat`（顶），并设置 `data-android-nav=gesture|buttons`。底栏 `padding-bottom` 使用 `--sab`，避免三段式按键挡住 Tab。改 Kotlin 后需重新编译安装 APK（热更新前端不够）。
+`MainActivity` 在全面屏边到边模式下读取 `WindowInsets`：`--sab`/`--sat` 管系统栏；**软键盘**在原生层给 WebView 加 `paddingBottom = ime`（Android 15+ `adjustResize`/`visualViewport` 往往无效）。前端用 `data-keyboard-open` 隐藏底栏，输入条留在文档流底部。改 Kotlin / Manifest 后必须重新编译安装 APK。
 
 ## 跨端同步（不自建后端）
 
