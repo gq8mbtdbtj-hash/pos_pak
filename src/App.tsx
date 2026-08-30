@@ -119,7 +119,7 @@ function App() {
             </aside>
           )}
           <main
-            className={`main${
+            className={`main main--framed${
               ["dashboard", "tasks", "habits", "finance", "knowledge"].includes(page)
                 ? " main--dock"
                 : ""

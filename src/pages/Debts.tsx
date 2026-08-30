@@ -8,6 +8,7 @@ import {
   RepaymentPlan,
 } from "../services/api";
 import { showToast } from "../components/Toast";
+import PageShell from "../components/PageShell";
 
 function progress(debt: Debt) {
   if (debt.principal <= 0) return 100;
@@ -326,19 +327,18 @@ export default function DebtsPage({
   );
 
   return (
-    <div className="page page-debts">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Liabilities</p>
-          <h2 className="page-title">外债</h2>
-        </div>
+    <PageShell
+      className="page-debts"
+      eyebrow="Liabilities"
+      title="外债"
+      actions={
         <div className="segmented segmented--jump" role="group" aria-label="返回记账">
           <button type="button" onClick={() => onNavigate("finance")}>
             记账
           </button>
         </div>
-      </header>
-
+      }
+    >
       {overview && (
         <section className="panel">
           <div className="flow-strip">
@@ -644,6 +644,6 @@ export default function DebtsPage({
           </div>
         </div>
       </section>
-    </div>
+    </PageShell>
   );
 }

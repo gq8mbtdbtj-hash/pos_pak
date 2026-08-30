@@ -1,4 +1,5 @@
 import { useState } from "react";
+import PageShell from "../components/PageShell";
 import { api, SearchResult } from "../services/api";
 
 export default function SearchPage() {
@@ -25,13 +26,7 @@ export default function SearchPage() {
   };
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Search</p>
-          <h2 className="page-title">搜索</h2>
-        </div>
-      </header>
+    <PageShell eyebrow="Search" title="搜索">
       <div className="search-bar">
         <input
           className="search-box"
@@ -59,6 +54,6 @@ export default function SearchPage() {
           </div>
         ))}
       </div>
-    </div>
+    </PageShell>
   );
 }

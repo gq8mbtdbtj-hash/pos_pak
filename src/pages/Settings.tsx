@@ -11,6 +11,7 @@ import {
 } from "../services/api";
 import { isMobile } from "../lib/platform";
 import Select from "../components/Select";
+import PageShell from "../components/PageShell";
 import { showToast, type ToastKind } from "../components/Toast";
 
 type Props = {
@@ -442,21 +443,20 @@ export default function SettingsPage({ onLocked }: Props) {
             : "设置";
 
   return (
-    <div className="page page-settings">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h2 className="page-title">{panelTitle}</h2>
-        </div>
-        {panel !== "home" && (
+    <PageShell
+      className="page-settings"
+      eyebrow="Settings"
+      title={panelTitle}
+      actions={
+        panel !== "home" ? (
           <div className="segmented segmented--jump" role="group" aria-label="返回设置">
             <button type="button" onClick={goHome}>
               设置
             </button>
           </div>
-        )}
-      </header>
-
+        ) : undefined
+      }
+    >
       {panel === "home" && (
         <>
           <section className="settings-group">
@@ -812,6 +812,6 @@ export default function SettingsPage({ onLocked }: Props) {
           </div>
         </section>
       )}
-    </div>
+    </PageShell>
   );
 }

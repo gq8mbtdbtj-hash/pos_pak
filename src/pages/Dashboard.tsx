@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryPie from "../components/CategoryPie";
 import FinanceChart from "../components/FinanceChart";
 import InputDock from "../components/InputDock";
+import PageShell from "../components/PageShell";
 import {
   api,
   ChartBucket,
@@ -115,15 +116,25 @@ export default function Dashboard({ onNavigate }: Props) {
   const pieData = summary?.categoryMonth ?? [];
 
   return (
-    <div className="page page-dashboard">
-      <div className="dash-scroll">
-        <header className="page-header">
-          <div>
-            <p className="eyebrow">Today</p>
-            <h2 className="page-title">今天</h2>
-          </div>
-        </header>
-
+    <PageShell
+      className="page-dashboard"
+      eyebrow="Today"
+      title="今天"
+      dock={
+        <InputDock label="快速记录" message={message || undefined}>
+          <input
+            placeholder="快速记录… 例：咖啡28 / 明天9点开会"
+            value={capture}
+            onChange={(e) => setCapture(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCapture()}
+            data-no-tab-swipe
+          />
+          <button className="btn" type="button" onClick={handleCapture}>
+            记录
+          </button>
+        </InputDock>
+      }
+    >
         {stats && (
           <section className="panel">
             <div className="fiscal-banner">
@@ -288,20 +299,6 @@ export default function Dashboard({ onNavigate }: Props) {
             )}
           </section>
         </div>
-      </div>
-
-      <InputDock label="快速记录" message={message || undefined}>
-        <input
-          placeholder="快速记录… 例：咖啡28 / 明天9点开会"
-          value={capture}
-          onChange={(e) => setCapture(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleCapture()}
-          data-no-tab-swipe
-        />
-        <button className="btn" type="button" onClick={handleCapture}>
-          记录
-        </button>
-      </InputDock>
-    </div>
+    </PageShell>
   );
 }

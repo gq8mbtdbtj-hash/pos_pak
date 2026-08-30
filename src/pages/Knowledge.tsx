@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import InputDock from "../components/InputDock";
+import PageShell from "../components/PageShell";
 import Select from "../components/Select";
 import { canEditKnowledge } from "../lib/platform";
 import { api, KnowledgeFile, KnowledgeTreeNode, SearchResult } from "../services/api";
@@ -116,18 +117,55 @@ export default function KnowledgePage() {
   const previewBody = content.replace(/^---[\s\S]*?---\n/, "");
 
   return (
-    <div className={`page page--with-dock${editable ? "" : " page-knowledge--readonly"}`}>
-      <div className="page-scroll">
-        <header className="page-header">
-          <div>
-            <p className="eyebrow">Knowledge</p>
-            <h2 className="page-title">知识库</h2>
-            {!editable && (
-              <p className="muted hint">手机端可问答检索与阅读；新建、编辑、导入请在桌面端操作。</p>
-            )}
-          </div>
-        </header>
-
+    <PageShell
+      className={editable ? "" : "page-knowledge--readonly"}
+      eyebrow="Knowledge"
+      title="知识库"
+      subtitle={
+        !editable ? (
+          <p className="muted hint">手机端可问答检索与阅读；新建、编辑、导入请在桌面端操作。</p>
+        ) : undefined
+      }
+      dock={
+        editable ? (
+          <InputDock label="创建文档">
+            <Select
+              size="sm"
+              ariaLabel="文件夹"
+              noTabSwipe
+              value={newFolder}
+              options={["cpp", "graphics", "android", "linux", "ai", "work", "life", "reading"].map(
+                (f) => ({ value: f, label: f }),
+              )}
+              onChange={setNewFolder}
+            />
+            <input
+              placeholder="新文档标题"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && create()}
+              data-no-tab-swipe
+            />
+            <button className="btn" type="button" onClick={create}>
+              创建
+            </button>
+          </InputDock>
+        ) : (
+          <InputDock label="知识问答">
+            <input
+              placeholder="输入问题或关键词，检索知识库…"
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runAsk()}
+              data-no-tab-swipe
+            />
+            <button className="btn" type="button" onClick={runAsk}>
+              提问
+            </button>
+          </InputDock>
+        )
+      }
+    >
         {!editable && asked && (
           <section className="panel knowledge-ask-results">
             <h3 className="section-label">问答结果</h3>
@@ -187,45 +225,6 @@ export default function KnowledgePage() {
             )}
           </div>
         </div>
-      </div>
-
-      {editable ? (
-        <InputDock label="创建文档">
-          <Select
-            size="sm"
-            ariaLabel="文件夹"
-            noTabSwipe
-            value={newFolder}
-            options={["cpp", "graphics", "android", "linux", "ai", "work", "life", "reading"].map(
-              (f) => ({ value: f, label: f }),
-            )}
-            onChange={setNewFolder}
-          />
-          <input
-            placeholder="新文档标题"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
-            data-no-tab-swipe
-          />
-          <button className="btn" type="button" onClick={create}>
-            创建
-          </button>
-        </InputDock>
-      ) : (
-        <InputDock label="知识问答">
-          <input
-            placeholder="输入问题或关键词，检索知识库…"
-            value={ask}
-            onChange={(e) => setAsk(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && runAsk()}
-            data-no-tab-swipe
-          />
-          <button className="btn" type="button" onClick={runAsk}>
-            提问
-          </button>
-        </InputDock>
-      )}
-    </div>
+    </PageShell>
   );
 }

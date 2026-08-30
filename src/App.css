@@ -208,6 +208,22 @@
   overflow-x: hidden;
 }
 
+/* All app pages use a framed column so PageShell chrome can stay fixed */
+.main.main--framed {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.main.main--framed .page-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .main.main--dock {
   display: flex;
   flex-direction: column;
@@ -227,6 +243,48 @@
   max-width: min(1280px, 100%);
   width: 100%;
   animation: page-in 320ms ease;
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  max-width: min(1280px, 100%);
+  width: 100%;
+  animation: page-in 320ms ease;
+}
+
+.page-shell__chrome {
+  flex-shrink: 0;
+  z-index: 28;
+  margin: 0 -1.75rem;
+  padding: 0 1.75rem 0.7rem;
+  /* Same as window: chrome sits above the scroll pane (not overlaid), so no bar fill */
+  background: transparent;
+  border-bottom: none;
+}
+
+.page-shell__chrome .page-header {
+  margin-bottom: 0;
+}
+
+.page-shell__titles {
+  min-width: 0;
+}
+
+.page-shell__subtitle {
+  margin-top: 0.35rem;
+}
+
+.page-shell__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.85rem 0 0.75rem;
+  overscroll-behavior: contain;
 }
 
 .page-dashboard,
@@ -2585,10 +2643,6 @@ html[data-keyboard-open] .sync-fabs {
 }
 
 /* Settings — system-like grouped list + subpages */
-.page-settings .page-header {
-  margin-bottom: 0.85rem;
-}
-
 .settings-group {
   margin-bottom: 1.15rem;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, Goal, GoalDetail, HabitWithStats } from "../services/api";
 import InputDock from "../components/InputDock";
 import DockDateField from "../components/DockDateField";
+import PageShell from "../components/PageShell";
 import { toastErr } from "../components/Toast";
 
 type Segment = "habits" | "goals";
@@ -198,36 +199,127 @@ export default function HabitsPage() {
   const totalCount = selectedGoal?.milestones.length ?? 0;
 
   return (
-    <div className="page page-habits-goals page--with-dock">
-      <div className="page-scroll">
-        <header className="page-header page-header--stack">
-          <div>
-            <p className="eyebrow">Growth</p>
-            <h2 className="page-title">习惯与目标</h2>
-          </div>
-          <div className="segmented segmented--grow" role="tablist" aria-label="切换内容区">
-            <button
-              type="button"
-              role="tab"
-              className={segment === "habits" ? "active" : ""}
-              aria-selected={segment === "habits"}
-              onClick={() => setSegment("habits")}
-            >
-              习惯
+    <PageShell
+      className="page-habits-goals"
+      eyebrow="Growth"
+      title="习惯与目标"
+      stack
+      actions={
+        <div className="segmented segmented--grow" role="tablist" aria-label="切换内容区">
+          <button
+            type="button"
+            role="tab"
+            className={segment === "habits" ? "active" : ""}
+            aria-selected={segment === "habits"}
+            onClick={() => setSegment("habits")}
+          >
+            习惯
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={segment === "goals" ? "active" : ""}
+            aria-selected={segment === "goals"}
+            onClick={() => setSegment("goals")}
+          >
+            目标
+          </button>
+        </div>
+      }
+      dock={
+        segment === "habits" ? (
+          <InputDock label="新建习惯">
+            <input
+              placeholder="例如：每天阅读 30 分钟"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && createHabit()}
+              data-no-tab-swipe
+            />
+            <button className="btn" type="button" onClick={createHabit}>
+              添加
             </button>
-            <button
-              type="button"
-              role="tab"
-              className={segment === "goals" ? "active" : ""}
-              aria-selected={segment === "goals"}
-              onClick={() => setSegment("goals")}
-            >
-              目标
-            </button>
-          </div>
-        </header>
-
-        {segment === "habits" ? (
+          </InputDock>
+        ) : (
+          <InputDock
+            label={goalDock === "milestone" ? "添加里程碑" : "新建目标"}
+            variant="composer"
+          >
+            {goals.length > 0 && (
+              <div className="segmented dock-segmented" role="tablist" aria-label="录入模式">
+                <button
+                  type="button"
+                  role="tab"
+                  className={goalDock === "goal" ? "active" : ""}
+                  aria-selected={goalDock === "goal"}
+                  onClick={startNewGoal}
+                  data-no-tab-swipe
+                >
+                  新目标
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={goalDock === "milestone" ? "active" : ""}
+                  aria-selected={goalDock === "milestone"}
+                  disabled={!selectedGoal}
+                  onClick={() => selectedGoal && setGoalDock("milestone")}
+                  data-no-tab-swipe
+                >
+                  里程碑
+                </button>
+              </div>
+            )}
+            {goalDock === "milestone" && selectedGoal ? (
+              <>
+                <input
+                  className="dock-composer-title"
+                  placeholder={`为「${selectedGoal.goal.title}」添加里程碑`}
+                  value={milestoneTitle}
+                  onChange={(e) => setMilestoneTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addMilestone()}
+                  data-no-tab-swipe
+                />
+                <div className="dock-composer-actions">
+                  <DockDateField
+                    label="截止"
+                    value={milestoneDue}
+                    onChange={setMilestoneDue}
+                    ariaLabel="里程碑截止日期"
+                  />
+                  <button className="btn" type="button" onClick={addMilestone}>
+                    添加
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <input
+                  className="dock-composer-title"
+                  placeholder="例如：今年读完 10 本"
+                  value={goalTitle}
+                  onChange={(e) => setGoalTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && createGoal()}
+                  data-no-tab-swipe
+                />
+                <div className="dock-composer-actions">
+                  <DockDateField
+                    label="目标日"
+                    value={goalDate}
+                    onChange={setGoalDate}
+                    ariaLabel="目标日期"
+                  />
+                  <button className="btn" type="button" onClick={createGoal}>
+                    添加
+                  </button>
+                </div>
+              </>
+            )}
+          </InputDock>
+        )
+      }
+    >
+      {segment === "habits" ? (
           <section className="panel">
             {habits.length === 0 ? (
               <p className="empty-state">暂无习惯</p>
@@ -361,98 +453,6 @@ export default function HabitsPage() {
             </div>
           </>
         )}
-      </div>
-
-      {segment === "habits" ? (
-        <InputDock label="新建习惯">
-          <input
-            placeholder="例如：每天阅读 30 分钟"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && createHabit()}
-            data-no-tab-swipe
-          />
-          <button className="btn" type="button" onClick={createHabit}>
-            添加
-          </button>
-        </InputDock>
-      ) : (
-        <InputDock
-          label={goalDock === "milestone" ? "添加里程碑" : "新建目标"}
-          variant="composer"
-        >
-          {goals.length > 0 && (
-            <div className="segmented dock-segmented" role="tablist" aria-label="录入模式">
-              <button
-                type="button"
-                role="tab"
-                className={goalDock === "goal" ? "active" : ""}
-                aria-selected={goalDock === "goal"}
-                onClick={startNewGoal}
-                data-no-tab-swipe
-              >
-                新目标
-              </button>
-              <button
-                type="button"
-                role="tab"
-                className={goalDock === "milestone" ? "active" : ""}
-                aria-selected={goalDock === "milestone"}
-                disabled={!selectedGoal}
-                onClick={() => selectedGoal && setGoalDock("milestone")}
-                data-no-tab-swipe
-              >
-                里程碑
-              </button>
-            </div>
-          )}
-          {goalDock === "milestone" && selectedGoal ? (
-            <>
-              <input
-                className="dock-composer-title"
-                placeholder={`为「${selectedGoal.goal.title}」添加里程碑`}
-                value={milestoneTitle}
-                onChange={(e) => setMilestoneTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addMilestone()}
-                data-no-tab-swipe
-              />
-              <div className="dock-composer-actions">
-                <DockDateField
-                  label="截止"
-                  value={milestoneDue}
-                  onChange={setMilestoneDue}
-                  ariaLabel="里程碑截止日期"
-                />
-                <button className="btn" type="button" onClick={addMilestone}>
-                  添加
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <input
-                className="dock-composer-title"
-                placeholder="例如：今年读完 10 本"
-                value={goalTitle}
-                onChange={(e) => setGoalTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && createGoal()}
-                data-no-tab-swipe
-              />
-              <div className="dock-composer-actions">
-                <DockDateField
-                  label="目标日"
-                  value={goalDate}
-                  onChange={setGoalDate}
-                  ariaLabel="目标日期"
-                />
-                <button className="btn" type="button" onClick={createGoal}>
-                  添加
-                </button>
-              </div>
-            </>
-          )}
-        </InputDock>
-      )}
-    </div>
+    </PageShell>
   );
 }

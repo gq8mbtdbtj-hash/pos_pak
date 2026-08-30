@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryPie from "../components/CategoryPie";
 import FinanceChart from "../components/FinanceChart";
 import InputDock from "../components/InputDock";
+import PageShell from "../components/PageShell";
 import Select from "../components/Select";
 import { api, ChartBucket, FinanceSummary, Transaction } from "../services/api";
 
@@ -196,35 +197,46 @@ export default function FinancePage({
   const monthNet = summary ? summary.month.income - summary.month.expense : 0;
 
   return (
-    <div className="page page-finance page--with-dock">
-      <div className="page-scroll">
-      <header className="page-header page-header--stack">
-        <div>
-          <p className="eyebrow">Cashflow</p>
-          <h2 className="page-title">记账</h2>
-        </div>
-        <div className="page-header-tools">
-          <div className="segmented" role="group" aria-label="时间范围与外债">
-            {(["day", "week", "month"] as Range[]).map((r) => (
-              <button
-                key={r}
-                type="button"
-                role="tab"
-                aria-selected={range === r}
-                className={range === r ? "active" : ""}
-                onClick={() => setRange(r)}
-              >
-                {RANGE_LABEL[r]}
-              </button>
-            ))}
-            <span className="segmented-divider" aria-hidden />
-            <button type="button" onClick={() => onNavigate("debts")}>
-              外债
+    <PageShell
+      className="page-finance"
+      eyebrow="Cashflow"
+      title="记账"
+      stack
+      actions={
+        <div className="segmented" role="group" aria-label="时间范围与外债">
+          {(["day", "week", "month"] as Range[]).map((r) => (
+            <button
+              key={r}
+              type="button"
+              role="tab"
+              aria-selected={range === r}
+              className={range === r ? "active" : ""}
+              onClick={() => setRange(r)}
+            >
+              {RANGE_LABEL[r]}
             </button>
-          </div>
+          ))}
+          <span className="segmented-divider" aria-hidden />
+          <button type="button" onClick={() => onNavigate("debts")}>
+            外债
+          </button>
         </div>
-      </header>
-
+      }
+      dock={
+        <InputDock label="快速记账" message={message || undefined}>
+          <input
+            placeholder="例如：电信欠费 88 / 冰箱卖了36 / 午饭 35"
+            value={quick}
+            onChange={(e) => setQuick(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && quickCapture()}
+            data-no-tab-swipe
+          />
+          <button className="btn" type="button" onClick={quickCapture}>
+            记录
+          </button>
+        </InputDock>
+      }
+    >
       {summary && (
         <section className="panel">
           <div className="fiscal-banner">
@@ -425,20 +437,6 @@ export default function FinancePage({
           </div>
         )}
       </section>
-      </div>
-
-      <InputDock label="快速记账" message={message || undefined}>
-        <input
-          placeholder="例如：电信欠费 88 / 冰箱卖了36 / 午饭 35"
-          value={quick}
-          onChange={(e) => setQuick(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && quickCapture()}
-          data-no-tab-swipe
-        />
-        <button className="btn" type="button" onClick={quickCapture}>
-          记录
-        </button>
-      </InputDock>
-    </div>
+    </PageShell>
   );
 }

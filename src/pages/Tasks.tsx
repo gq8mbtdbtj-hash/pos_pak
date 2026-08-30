@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { daysLeftLabel, daysUntilDue } from "../components/DebtReminderPopups";
 import InputDock from "../components/InputDock";
+import PageShell from "../components/PageShell";
 import Select from "../components/Select";
 import { api, Task } from "../services/api";
 
@@ -185,15 +186,37 @@ export default function TasksPage() {
   }, [tasks]);
 
   return (
-    <div className="page page-tasks page--with-dock">
-      <div className="page-scroll">
-        <header className="page-header">
-          <div>
-            <p className="eyebrow">Tasks</p>
-            <h2 className="page-title">任务</h2>
-          </div>
-        </header>
-
+    <PageShell
+      className="page-tasks"
+      eyebrow="Tasks"
+      title="任务"
+      dock={
+        <InputDock label="添加任务">
+          <input
+            placeholder="新任务标题"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && create()}
+            data-no-tab-swipe
+          />
+          <Select
+            size="sm"
+            ariaLabel="优先级"
+            noTabSwipe
+            value={priority}
+            options={[
+              { value: "high", label: "高" },
+              { value: "medium", label: "中" },
+              { value: "low", label: "低" },
+            ]}
+            onChange={(v) => setPriority(v as Priority)}
+          />
+          <button className="btn" type="button" onClick={create}>
+            添加
+          </button>
+        </InputDock>
+      }
+    >
         <p className="muted hint" style={{ marginBottom: "1rem" }}>
           双重分类：日常任务按优先级；还款等周期批量任务仅出现在「近 7 天 / 近 1 月」。剩余天数按今天实时计算；弹窗：提前 3
           天（低）/ 前一天（中）/ 当天 17:00（高）。
@@ -246,32 +269,6 @@ export default function TasksPage() {
             ))}
           </section>
         )}
-      </div>
-
-      <InputDock label="添加任务">
-        <input
-          placeholder="新任务标题"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && create()}
-          data-no-tab-swipe
-        />
-        <Select
-          size="sm"
-          ariaLabel="优先级"
-          noTabSwipe
-          value={priority}
-          options={[
-            { value: "high", label: "高" },
-            { value: "medium", label: "中" },
-            { value: "low", label: "低" },
-          ]}
-          onChange={(v) => setPriority(v as Priority)}
-        />
-        <button className="btn" type="button" onClick={create}>
-          添加
-        </button>
-      </InputDock>
-    </div>
+    </PageShell>
   );
 }
