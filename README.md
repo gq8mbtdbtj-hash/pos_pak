@@ -159,9 +159,10 @@ npm run start          # = 构建 dist 再由 Go 托管
 | `POS_ALLOWED_ORIGIN` | 跨域来源白名单（逗号分隔）。默认空 = 仅同源。 |
 | `POS_API_TARGET` | dev 下 Vite 代理目标（默认 `http://127.0.0.1:8787`）。 |
 
-## 暂未接入（后续）
+## 与桌面端的对齐现状与路线图
 
-AtomGit 同步 provider。
+命令层面 83/83 已对齐；核心域全部落地。存在若干**有意差异**（更新器移除、备份改下载/上传、Git 配置改文本、通知改 Web Notifications）与**有意取舍**（Web 不记住主密码），以及**已知差距**（单档案、AtomGit、同步冲突合并）。
+完整如实评估与后续计划见 [`docs/parity-and-roadmap.md`](./docs/parity-and-roadmap.md)。
 
 ## 规范
 
