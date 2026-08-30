@@ -2834,6 +2834,13 @@ html[data-keyboard-open] .sync-fabs {
   pointer-events: none;
 }
 
+/* Desktop: sit under titlebar so FABs/docks don't cover success toasts */
+.app--desktop .toast-host {
+  top: calc(2.75rem + var(--sat, env(safe-area-inset-top, 0px)));
+  bottom: auto;
+  flex-direction: column;
+}
+
 .app--mobile .toast-host {
   position: absolute;
   bottom: calc(1.1rem + var(--sab, env(safe-area-inset-bottom, 0px)));

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { api, SyncPullResult, GitCommitInfo } from "../services/api";
 import { showToast } from "./Toast";
 
@@ -81,12 +81,8 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
   const [armed, setArmed] = useState<"pull" | "push" | null>(null);
   const [side, setSide] = useState<Side>(() => readSide());
   const [conflict, setConflict] = useState<SyncPullResult | null>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    moved: boolean;
-  } | null>(null);
   const suppressClick = useRef(false);
+  const dragCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     try {
@@ -96,46 +92,81 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
     }
   }, [side]);
 
+  useEffect(() => {
+    return () => {
+      dragCleanup.current?.();
+      dragCleanup.current = null;
+    };
+  }, []);
+
   if (!enabled) return null;
 
   const blur = (el: EventTarget | null) => {
     if (el instanceof HTMLElement) el.blur();
   };
 
-  const onClusterPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    dragRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      moved: false,
+  /**
+   * Side-drag without setPointerCapture on pointerdown.
+   * Capturing immediately steals click from the FAB buttons on desktop
+   * (WebView2); mobile touch often still synthesizes click, which hid the bug.
+   * Window listeners + capture only after the drag threshold keep both paths.
+   */
+  const onClusterPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    dragCleanup.current?.();
+
+    const cluster = e.currentTarget;
+    const pointerId = e.pointerId;
+    const startX = e.clientX;
+    let moved = false;
+    let captured = false;
+
+    const onMove = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      if (Math.abs(ev.clientX - startX) <= 12) return;
+      moved = true;
+      if (!captured) {
+        captured = true;
+        try {
+          cluster.setPointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
     };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
 
-  const onClusterPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    if (Math.abs(e.clientX - d.startX) > 12) d.moved = true;
-  };
+    const onUp = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      cleanup();
+      if (!moved) return;
+      suppressClick.current = true;
+      window.setTimeout(() => {
+        suppressClick.current = false;
+      }, 280);
+      const mid = window.innerWidth / 2;
+      const next: Side = ev.clientX < mid ? "left" : "right";
+      setSide(next);
+      showToast("ok", next === "left" ? "同步按钮已移到左侧" : "同步按钮已移到右侧");
+    };
 
-  const onClusterPointerUp = (e: PointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    dragRef.current = null;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-    if (!d.moved) return;
-    suppressClick.current = true;
-    window.setTimeout(() => {
-      suppressClick.current = false;
-    }, 280);
-    const mid = window.innerWidth / 2;
-    const next: Side = e.clientX < mid ? "left" : "right";
-    setSide(next);
-    showToast("ok", next === "left" ? "同步按钮已移到左侧" : "同步按钮已移到右侧");
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (captured) {
+        try {
+          cluster.releasePointerCapture(pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (dragCleanup.current === cleanup) dragCleanup.current = null;
+    };
+
+    dragCleanup.current = cleanup;
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const pull = async (e: MouseEvent<HTMLButtonElement>) => {
@@ -223,9 +254,6 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
         aria-label="同步（左右拖动可换边）"
         title="左右拖动可切换位置"
         onPointerDown={onClusterPointerDown}
-        onPointerMove={onClusterPointerMove}
-        onPointerUp={onClusterPointerUp}
-        onPointerCancel={onClusterPointerUp}
       >
         <button
           type="button"
