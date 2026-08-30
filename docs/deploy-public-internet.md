@@ -88,8 +88,27 @@ sudo caddy run --config deploy/Caddyfile.example   # 改好域名
 
 - **务必用 HTTPS 映射**，不要用纯 TCP/HTTP 映射暴露 8787（否则链路明文）。
 - 免费版有带宽/流量限制，个人自用一般够；介意稳定性可用其付费套餐或改用方式 A/B。
-- 花生壳属于「信任第三方隧道」：数据在到达花生壳边缘前后仍需 TLS。若你希望**端到端**只有自己可解，可改为：花生壳做 TCP 穿透到本机，本机用**内置 TLS**（见方式 E）自持证书，做到隧道商也看不到明文。
+- 花生壳属于「信任第三方隧道」：数据在到达花生壳边缘前后仍需 TLS。若你希望**端到端**只有自己可解，用下面的「花生壳 TCP + 内置 TLS」组合。
 - 建议再叠加主密码之外的一层（如在前面放一个带 Basic Auth 的 Caddy）。
+
+#### 端到端加密示例（花生壳 TCP + 内置 TLS，免费）
+
+让程序自持证书出 HTTPS，花生壳只做 TCP 转发，隧道商也看不到明文：
+
+```bash
+# 1) 生成自签证书（10 年、免费；HOST 用花生壳给你的域名）
+./scripts/gen-cert.sh os.xxxxx.gicp.net /opt/personal-os/tls
+
+# 2) 让服务端以 HTTPS 直接监听（改 systemd 单元或直接运行）
+POS_ADDR=0.0.0.0:8443 \
+POS_TLS_CERT=/opt/personal-os/tls/fullchain.pem \
+POS_TLS_KEY=/opt/personal-os/tls/privkey.pem \
+POS_DIST_DIR=/opt/personal-os/dist POS_DATA_DIR=/opt/personal-os/data \
+/opt/personal-os/personal-os-server
+```
+
+3) 花生壳新增一条 **TCP** 映射：外网 → 内网 `127.0.0.1:8443`。访问花生壳给的地址即可。
+   自签证书浏览器首次会提示「不受信任」，确认继续一次即可（自用可接受；想去掉警告需真实域名 + Let's Encrypt）。
 
 ---
 

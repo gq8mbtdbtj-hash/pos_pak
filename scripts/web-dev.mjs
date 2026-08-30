@@ -129,6 +129,8 @@ run(
   {
     POS_DATA_DIR: process.env.POS_DATA_DIR || join(root, "server", "data", "personal-os"),
     GOTOOLCHAIN: process.env.GOTOOLCHAIN || "auto",
+    // 国内 Go 模块代理（免费，七牛 goproxy.cn）；已设置 GOPROXY 时尊重用户配置。
+    GOPROXY: process.env.GOPROXY || "https://goproxy.cn,direct",
   },
   false, // go(.exe) is a real binary; no shell needed
 );

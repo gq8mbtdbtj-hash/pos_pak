@@ -129,6 +129,8 @@ npm run start          # = 构建 dist 再由 Go 托管
 
 ## 部署（树莓派 / 公网）
 
+- 🇨🇳 **中国用户三步上手**（免费、好维护）：见 [`docs/quickstart-cn.md`](./docs/quickstart-cn.md)
+  （树莓派 systemd + Tailscale/花生壳 + Gitee 加密同步；国内镜像已预置）。
 - 一键构建部署产物（前端 `dist/` + 交叉编译的服务端二进制，含树莓派 arm64/armv7）：
   ```bash
   npm run release      # 产物在 release/

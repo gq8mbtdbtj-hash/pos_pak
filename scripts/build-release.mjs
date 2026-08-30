@@ -53,7 +53,15 @@ for (const t of targets) {
     ["build", "-trimpath", "-ldflags", "-s -w", "-o", out, "./cmd/server"],
     {
       cwd: join(root, "server"),
-      env: { ...process.env, CGO_ENABLED: "0", GOOS: t.GOOS, GOARCH: t.GOARCH, ...(t.GOARM ? { GOARM: t.GOARM } : {}) },
+      env: {
+        ...process.env,
+        CGO_ENABLED: "0",
+        GOOS: t.GOOS,
+        GOARCH: t.GOARCH,
+        // 国内 Go 模块代理（免费）；已设置 GOPROXY 时尊重用户配置。
+        GOPROXY: process.env.GOPROXY || "https://goproxy.cn,direct",
+        ...(t.GOARM ? { GOARM: t.GOARM } : {}),
+      },
     },
   );
 }
