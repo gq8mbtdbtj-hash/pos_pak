@@ -650,11 +650,7 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
                   type="button"
                   className="settings-menu__item"
                   onClick={() => {
-                    void import("@tauri-apps/plugin-shell").then(({ open }) =>
-                      open(ANDROID_APK_DOWNLOAD_URL).catch((e) =>
-                        showToast("err", errText(e)),
-                      ),
-                    );
+                    window.open(ANDROID_APK_DOWNLOAD_URL, "_blank", "noopener");
                   }}
                 >
                   <span className="settings-menu__text">

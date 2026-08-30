@@ -11,7 +11,11 @@
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
-    "release:pos-pak": "node scripts/release-pos-pak.mjs"
+    "release:pos-pak": "node scripts/release-pos-pak.mjs",
+    "web:server": "cd server && go run ./cmd/server",
+    "web:dev": "node scripts/web-dev.mjs",
+    "web:build": "tsc && vite build",
+    "web:serve": "npm run web:build && cd server && go run ./cmd/server"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.4.0",

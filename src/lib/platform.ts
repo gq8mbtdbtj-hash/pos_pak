@@ -31,7 +31,26 @@ export function isDesktop(): boolean {
   return detectPlatform() === "desktop";
 }
 
-/** Knowledge document create/update/delete — desktop only. Categories editable on all platforms. */
+/**
+ * True in the pure-web build (no Tauri runtime). Detected by the absence of
+ * Tauri's injected internals so the same source also works if bundled for Tauri.
+ */
+export function isWeb(): boolean {
+  return (
+    typeof window === "undefined" ||
+    !(
+      "__TAURI_INTERNALS__" in window ||
+      "__TAURI__" in window ||
+      "__TAURI_METADATA__" in window
+    )
+  );
+}
+
+/**
+ * Knowledge document create/update/delete. On desktop this was desktop-only;
+ * in the pure-web build the phone browser is the primary entry point, so
+ * editing is allowed there too.
+ */
 export function canEditKnowledge(): boolean {
-  return isDesktop();
+  return isWeb() || isDesktop();
 }
