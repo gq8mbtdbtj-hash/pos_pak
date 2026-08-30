@@ -116,6 +116,14 @@ export default function FinancePage({
     load();
   }, [load]);
 
+  useEffect(() => {
+    const onPrefs = () => {
+      void load();
+    };
+    window.addEventListener("personal-os:prefs-changed", onPrefs);
+    return () => window.removeEventListener("personal-os:prefs-changed", onPrefs);
+  }, [load]);
+
   const quickCapture = async () => {
     if (!quick.trim()) return;
     const text = quick.trim();

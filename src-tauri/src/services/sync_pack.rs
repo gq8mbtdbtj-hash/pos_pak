@@ -83,6 +83,17 @@ impl SyncPackService {
                 .map_err(|e| AppError::Zip(e.to_string()))?;
             zip.write_all(&db_bytes)?;
 
+            // Profile prefs (payday, etc.) travel with the archive.
+            let prefs_path = self.data_dir.join("app_prefs.json");
+            if prefs_path.exists() {
+                zip.start_file("data/app_prefs.json", options)
+                    .map_err(|e| AppError::Zip(e.to_string()))?;
+                let mut f = File::open(&prefs_path)?;
+                let mut buf = Vec::new();
+                f.read_to_end(&mut buf)?;
+                zip.write_all(&buf)?;
+            }
+
             let knowledge_dir = self.data_dir.join("knowledge");
             if knowledge_dir.exists() {
                 for entry in WalkDir::new(&knowledge_dir).into_iter().filter_map(|e| e.ok()) {
@@ -119,6 +130,7 @@ impl SyncPackService {
         fs::create_dir_all(&knowledge_dir)?;
 
         let mut db_bytes: Option<Vec<u8>> = None;
+        let mut prefs_bytes: Option<Vec<u8>> = None;
 
         for i in 0..archive.len() {
             let mut file = archive
@@ -134,6 +146,10 @@ impl SyncPackService {
                 db_bytes = Some(buf);
                 continue;
             }
+            if name == "data/app_prefs.json" || name.ends_with("/app_prefs.json") {
+                prefs_bytes = Some(buf);
+                continue;
+            }
             if let Some(rel) = name.strip_prefix("knowledge/") {
                 let dest = knowledge_dir.join(rel);
                 if let Some(parent) = dest.parent() {
@@ -147,6 +163,9 @@ impl SyncPackService {
             return Err(AppError::Other("同步包缺少数据库".into()));
         };
         db_crypto::replace_plain_db_from_bytes(&self.data_dir, db_key, &db)?;
+        if let Some(prefs) = prefs_bytes {
+            fs::write(self.data_dir.join("app_prefs.json"), prefs)?;
+        }
         Ok(())
     }
 

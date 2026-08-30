@@ -27,6 +27,11 @@ impl BackupService {
             add_file_to_zip(&mut zip, &db_path, "data/personal.db", options)?;
         }
 
+        let prefs_path = self.data_dir.join("app_prefs.json");
+        if prefs_path.exists() {
+            add_file_to_zip(&mut zip, &prefs_path, "data/app_prefs.json", options)?;
+        }
+
         let knowledge_dir = self.data_dir.join("knowledge");
         if knowledge_dir.exists() {
             for entry in WalkDir::new(&knowledge_dir).into_iter().filter_map(|e| e.ok()) {

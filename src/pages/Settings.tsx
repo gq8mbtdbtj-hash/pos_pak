@@ -553,12 +553,21 @@ export default function SettingsPage({ onLocked }: Props) {
                       try {
                         const prefs = await api.prefsSetPayday(day);
                         setPayday(prefs.payday);
+                        window.dispatchEvent(
+                          new CustomEvent("personal-os:prefs-changed", {
+                            detail: { payday: prefs.payday },
+                          }),
+                        );
                         showToast("ok", `发薪日已设为每月 ${prefs.payday} 日`);
                       } catch (e) {
                         showToast("err", errText(e));
                       } finally {
                         setPaydayBusy(false);
                       }
+                    }}
+                    onKeyDown={async (e) => {
+                      if (e.key !== "Enter") return;
+                      (e.target as HTMLInputElement).blur();
                     }}
                   />
                   <span>日</span>

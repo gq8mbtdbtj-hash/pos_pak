@@ -32,7 +32,9 @@ fn path(data_dir: &Path) -> PathBuf {
 pub fn load(data_dir: &Path) -> AppResult<AppPrefs> {
     let p = path(data_dir);
     if !p.exists() {
-        return Ok(AppPrefs::default());
+        let prefs = AppPrefs::default();
+        let _ = save(data_dir, &prefs);
+        return Ok(prefs);
     }
     let raw = fs::read_to_string(&p)?;
     let mut prefs: AppPrefs = serde_json::from_str(&raw)

@@ -17,7 +17,7 @@
 - 根因：模型曾用 progress 兼做完成度与录入
 - 防再发：checkin 存 `value`；progress 由 `(current-start)/(target-start)` 派生；创建强制 start/target
 
-### 2026-08-30 · 养成 Tab 切换清详情
-- 现象：从打卡切到习惯，右侧仍显示打卡详情
-- 根因：`selectedGoal` 未随 `goalFilter` 清空
-- 防再发：切换筛选 Tab 时清空选中与录入缓存，并同步新建类型
+### 2026-08-30 · 发薪日未进同步包
+- 现象：改发薪日后推送/拉取，另一端仍是默认 1
+- 根因：`app_prefs.json` 未打入 sync/backup zip
+- 防再发：pack 含 `data/app_prefs.json`；设置变更派发 `personal-os:prefs-changed` 刷新记账页
