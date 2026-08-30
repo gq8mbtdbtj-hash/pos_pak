@@ -1,6 +1,4 @@
-import { useMemo } from "react";
-import Select from "./Select";
-import { isMobile } from "../lib/platform";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 type Props = {
   label: string;
@@ -9,124 +7,250 @@ type Props = {
   ariaLabel: string;
 };
 
-function daysInMonth(year: number, month: number) {
-  return new Date(year, month, 0).getDate();
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
 }
 
-function parseParts(iso: string): { y: string; m: string; d: string } {
+function toIso(y: number, m: number, d: number) {
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+function parseIso(iso: string): { y: number; m: number; d: number } | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
-  if (!m) return { y: "", m: "", d: "" };
-  return { y: m[1], m: m[2], d: m[3] };
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return { y, m: mo, d };
 }
 
-function compose(y: string, m: string, d: string): string {
-  if (!y || !m || !d) return "";
-  const yi = Number(y);
-  const mi = Number(m);
-  const di = Number(d);
-  if (!Number.isFinite(yi) || !Number.isFinite(mi) || !Number.isFinite(di)) return "";
-  const maxD = daysInMonth(yi, mi);
-  const day = Math.min(di, maxD);
-  return `${y}-${m}-${String(day).padStart(2, "0")}`;
+function formatDisplay(iso: string) {
+  const p = parseIso(iso);
+  if (!p) return "";
+  return `${p.y}-${pad2(p.m)}-${pad2(p.d)}`;
 }
 
-/** Dock date field: native date on desktop; year/month/day picks on mobile (year is reachable). */
+function daysInMonth(y: number, m: number) {
+  return new Date(y, m, 0).getDate();
+}
+
+function startWeekday(y: number, m: number) {
+  return new Date(y, m - 1, 1).getDay();
+}
+
+/** Unified calendar date field — same UX on desktop and mobile. */
 export default function DockDateField({ label, value, onChange, ariaLabel }: Props) {
-  const mobile = useMemo(() => isMobile(), []);
-  const parts = parseParts(value);
-  const nowY = new Date().getFullYear();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"day" | "year">("day");
+  const today = useMemo(() => {
+    const n = new Date();
+    return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
+  }, []);
+  const selected = parseIso(value);
+  const [viewY, setViewY] = useState(selected?.y ?? today.y);
+  const [viewM, setViewM] = useState(selected?.m ?? today.m);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    if (selected) {
+      setViewY(selected.y);
+      setViewM(selected.m);
+    }
+    setMode("day");
+  }, [open, selected?.y, selected?.m]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const yearOptions = useMemo(() => {
-    const opts = [{ value: "", label: "年" }];
-    for (let y = nowY - 1; y <= nowY + 10; y++) {
-      opts.push({ value: String(y), label: `${y}年` });
+    const years: number[] = [];
+    for (let y = today.y - 2; y <= today.y + 12; y++) years.push(y);
+    return years;
+  }, [today.y]);
+
+  const cells = useMemo(() => {
+    const lead = startWeekday(viewY, viewM);
+    const total = daysInMonth(viewY, viewM);
+    const out: Array<{ day: number; iso: string } | null> = [];
+    for (let i = 0; i < lead; i++) out.push(null);
+    for (let d = 1; d <= total; d++) {
+      out.push({ day: d, iso: toIso(viewY, viewM, d) });
     }
-    return opts;
-  }, [nowY]);
+    while (out.length % 7 !== 0) out.push(null);
+    return out;
+  }, [viewY, viewM]);
 
-  const monthOptions = useMemo(
-    () => [
-      { value: "", label: "月" },
-      ...Array.from({ length: 12 }, (_, i) => {
-        const v = String(i + 1).padStart(2, "0");
-        return { value: v, label: `${i + 1}月` };
-      }),
-    ],
-    [],
-  );
+  const display = formatDisplay(value) || "选择日期";
+  const hasValue = Boolean(selected);
 
-  const dayOptions = useMemo(() => {
-    const opts = [{ value: "", label: "日" }];
-    const y = Number(parts.y) || nowY;
-    const m = Number(parts.m) || 1;
-    const max = parts.y && parts.m ? daysInMonth(y, m) : 31;
-    for (let d = 1; d <= max; d++) {
-      opts.push({ value: String(d).padStart(2, "0"), label: `${d}日` });
+  const shiftMonth = (delta: number) => {
+    let m = viewM + delta;
+    let y = viewY;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    } else if (m > 12) {
+      m = 1;
+      y += 1;
     }
-    return opts;
-  }, [parts.y, parts.m, nowY]);
+    setViewY(y);
+    setViewM(m);
+  };
 
-  if (!mobile) {
-    return (
-      <label className="dock-date-field">
-        <span>{label}</span>
-        <input
-          type="date"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          aria-label={ariaLabel}
-          data-no-tab-swipe
-        />
-      </label>
-    );
-  }
-
-  const setPart = (next: { y?: string; m?: string; d?: string }) => {
-    const y = next.y !== undefined ? next.y : parts.y;
-    const m = next.m !== undefined ? next.m : parts.m;
-    let d = next.d !== undefined ? next.d : parts.d;
-    if (y && m && d) {
-      const max = daysInMonth(Number(y), Number(m));
-      if (Number(d) > max) d = String(max).padStart(2, "0");
-    }
-    onChange(compose(y, m, d));
+  const pickDay = (iso: string) => {
+    onChange(iso);
+    setOpen(false);
   };
 
   return (
-    <div className="dock-date-field dock-date-field--parts" role="group" aria-label={ariaLabel}>
-      <span>{label}</span>
-      <div className="dock-date-parts">
-        <Select
-          size="sm"
-          value={parts.y}
-          options={yearOptions}
-          onChange={(y) => setPart({ y })}
-          ariaLabel={`${ariaLabel} 年`}
-          placeholder="年"
-          noTabSwipe
-          className="dock-date-parts__y"
-        />
-        <Select
-          size="sm"
-          value={parts.m}
-          options={monthOptions}
-          onChange={(m) => setPart({ m })}
-          ariaLabel={`${ariaLabel} 月`}
-          placeholder="月"
-          noTabSwipe
-          className="dock-date-parts__m"
-        />
-        <Select
-          size="sm"
-          value={parts.d}
-          options={dayOptions}
-          onChange={(d) => setPart({ d })}
-          ariaLabel={`${ariaLabel} 日`}
-          placeholder="日"
-          noTabSwipe
-          className="dock-date-parts__d"
-        />
-      </div>
+    <div
+      ref={rootRef}
+      className={`dock-date-field dock-date-field--picker${open ? " is-open" : ""}`}
+      data-no-tab-swipe
+    >
+      <span className="dock-date-field__label">{label}</span>
+      <button
+        type="button"
+        className={`dock-date-field__trigger${!hasValue ? " is-placeholder" : ""}`}
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {display}
+      </button>
+
+      {open && (
+        <div className="dock-date-panel" id={panelId} role="dialog" aria-label={ariaLabel}>
+          {mode === "day" ? (
+            <>
+              <div className="dock-date-panel__head">
+                <button
+                  type="button"
+                  className="dock-date-panel__nav"
+                  aria-label="上个月"
+                  onClick={() => shiftMonth(-1)}
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  className="dock-date-panel__title"
+                  onClick={() => setMode("year")}
+                >
+                  {viewY}年{viewM}月
+                </button>
+                <button
+                  type="button"
+                  className="dock-date-panel__nav"
+                  aria-label="下个月"
+                  onClick={() => shiftMonth(1)}
+                >
+                  ›
+                </button>
+              </div>
+              <div className="dock-date-panel__weekdays">
+                {WEEKDAYS.map((w) => (
+                  <span key={w}>{w}</span>
+                ))}
+              </div>
+              <div className="dock-date-panel__grid">
+                {cells.map((cell, i) =>
+                  cell ? (
+                    <button
+                      key={cell.iso}
+                      type="button"
+                      className={[
+                        "dock-date-panel__day",
+                        selected &&
+                        selected.y === viewY &&
+                        selected.m === viewM &&
+                        selected.d === cell.day
+                          ? " is-selected"
+                          : "",
+                        today.y === viewY && today.m === viewM && today.d === cell.day
+                          ? " is-today"
+                          : "",
+                      ].join("")}
+                      onClick={() => pickDay(cell.iso)}
+                    >
+                      {cell.day}
+                    </button>
+                  ) : (
+                    <span key={`e-${i}`} className="dock-date-panel__day is-empty" />
+                  ),
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="dock-date-panel__head">
+                <span className="dock-date-panel__title dock-date-panel__title--static">选择年份</span>
+                <button
+                  type="button"
+                  className="dock-date-panel__link"
+                  onClick={() => setMode("day")}
+                >
+                  返回
+                </button>
+              </div>
+              <div className="dock-date-panel__years">
+                {yearOptions.map((y) => (
+                  <button
+                    key={y}
+                    type="button"
+                    className={`dock-date-panel__year${y === viewY ? " is-selected" : ""}`}
+                    onClick={() => {
+                      setViewY(y);
+                      setMode("day");
+                    }}
+                  >
+                    {y}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <div className="dock-date-panel__foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              清除
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => pickDay(toIso(today.y, today.m, today.d))}
+            >
+              今天
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
