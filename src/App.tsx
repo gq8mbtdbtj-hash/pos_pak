@@ -90,10 +90,11 @@ function App() {
       {!mobile && <TitleBar />}
       {!unlocked ? (
         <UnlockGate
-          onUnlocked={async (s) => {
+          onUnlocked={(s) => {
             setVaultStatus(s);
             setUnlocked(true);
-            await refreshLocalReminders();
+            // Don't block first paint of the app on notification permission / lists.
+            void refreshLocalReminders();
           }}
         />
       ) : (

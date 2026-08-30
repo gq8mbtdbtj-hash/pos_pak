@@ -157,6 +157,8 @@ impl<'a> KnowledgeService<'a> {
         )
     }
 
+    /// Full rebuild of knowledge search index (recovery / rare repair).
+    #[allow(dead_code)]
     pub fn reindex_all(&self) -> AppResult<()> {
         for entry in walkdir::WalkDir::new(&self.root)
             .into_iter()

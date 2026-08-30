@@ -45,7 +45,12 @@ fn remember_mask(state: &AppState) -> Option<String> {
 
 fn current_status(state: &AppState) -> AppResult<VaultStatus> {
     let can_auto = remember::exists(&state.root_dir);
-    let mask = remember_mask(state);
+    // Skip decrypting remember (mask) unless UI needs it — faster locked peeks.
+    let mask = if can_auto {
+        remember_mask(state)
+    } else {
+        None
+    };
     if state.is_unlocked() {
         return state.with_session(|s| {
             VaultService::new(&s.data_dir).status_with_meta(

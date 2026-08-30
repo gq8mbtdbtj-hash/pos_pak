@@ -3,7 +3,6 @@ use crate::error::{AppError, AppResult};
 use crate::services::crypto::DerivedKeys;
 use crate::services::db_crypto;
 use crate::services::git_sync::GitSyncService;
-use crate::services::knowledge::KnowledgeService;
 use crate::services::profile::ProfileService;
 use crate::services::remember;
 use crate::services::sync_pack::{SyncManifest, SyncPackService};
@@ -56,10 +55,9 @@ impl AppState {
         let db = Arc::new(Database::new(&db_path)?);
         let knowledge_dir = data_dir.join("knowledge");
         std::fs::create_dir_all(&knowledge_dir)?;
-        let knowledge = KnowledgeService::new(&db, knowledge_dir.clone())?;
-        knowledge.reindex_all()?;
+        // Knowledge create/update/delete already maintain search indexes.
+        // Full reindex on every unlock was a major startup cost — skip here.
         let _ = db.checkpoint();
-        let _ = db_crypto::seal_database_file(&data_dir, &keys.db_key);
 
         let mut guard = self
             .session
@@ -258,8 +256,6 @@ impl AppState {
 
         let db_path = db_crypto::unlock_database_file(&data_dir, &keys.db_key)?;
         let db = Arc::new(Database::new(&db_path)?);
-        let knowledge = KnowledgeService::new(&db, knowledge_dir.clone())?;
-        knowledge.reindex_all()?;
         *guard = Some(Session {
             profile_id,
             data_dir,

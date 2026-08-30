@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, VaultStatus } from "../services/api";
 import { toastErr } from "./Toast";
 
@@ -6,20 +6,34 @@ type Props = {
   onUnlocked: (status: VaultStatus) => void;
 };
 
+type Mode = "loading" | "auto" | "init" | "unlock" | "create";
+
 export default function UnlockGate({ onUnlocked }: Props) {
-  const [mode, setMode] = useState<"loading" | "init" | "unlock" | "create">("loading");
+  const [mode, setMode] = useState<Mode>("loading");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
+  const onUnlockedRef = useRef(onUnlocked);
+  onUnlockedRef.current = onUnlocked;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        // Cheap peek first — paint unlock/init UI without waiting on Argon2/DB.
+        const peek = await api.vaultStatus();
+        if (cancelled) return;
+
+        if (!peek.canAutoUnlock) {
+          setMode(peek.initialized ? "unlock" : "init");
+          return;
+        }
+
+        setMode("auto");
         const auto = await api.vaultTryAutoUnlock();
         if (cancelled) return;
         if (auto.unlocked) {
-          await finishUnlock(auto);
+          onUnlockedRef.current(auto);
           return;
         }
         setMode(auto.initialized ? "unlock" : "init");
@@ -32,13 +46,7 @@ export default function UnlockGate({ onUnlocked }: Props) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const finishUnlock = async (status: VaultStatus) => {
-    // No auto pull/push on unlock — user syncs via floating buttons when ready.
-    onUnlocked(status);
-  };
 
   const submit = async () => {
     setBusy(true);
@@ -53,10 +61,10 @@ export default function UnlockGate({ onUnlocked }: Props) {
           return;
         }
         const status = await api.vaultInit(password);
-        await finishUnlock(status);
+        onUnlockedRef.current(status);
       } else {
         const status = await api.vaultUnlock(password);
-        await finishUnlock(status);
+        onUnlockedRef.current(status);
       }
     } catch (e) {
       toastErr(String(e));
@@ -65,14 +73,17 @@ export default function UnlockGate({ onUnlocked }: Props) {
     }
   };
 
+  const waiting = mode === "loading" || mode === "auto";
   const title =
     mode === "init"
       ? "设置登录码以加密本地数据与同步凭证"
       : mode === "create"
         ? "创建新的独立数据空间（新登录码对应独立数据与远端配置）"
-        : mode === "loading"
-          ? "正在检查本地会话…"
-          : "输入登录码解锁对应数据空间";
+        : mode === "auto"
+          ? "正在解锁本地数据…"
+          : mode === "loading"
+            ? "正在启动…"
+            : "输入登录码解锁对应数据空间";
 
   return (
     <div className="unlock-screen">
@@ -89,9 +100,9 @@ export default function UnlockGate({ onUnlocked }: Props) {
             placeholder="登录码"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !busy && submit()}
-            autoFocus
-            disabled={mode === "loading"}
+            onKeyDown={(e) => e.key === "Enter" && !busy && !waiting && submit()}
+            autoFocus={!waiting}
+            disabled={waiting}
             autoComplete="new-password"
           />
           {(mode === "init" || mode === "create") && (
@@ -108,12 +119,16 @@ export default function UnlockGate({ onUnlocked }: Props) {
           {password.length > 0 && (
             <p className="muted unlock-len">已输入 {password.length} 位</p>
           )}
-          <button className="btn" disabled={busy || mode === "loading"} onClick={submit}>
+          <button className="btn" disabled={busy || waiting} onClick={submit}>
             {busy
               ? "处理中…"
-              : mode === "init" || mode === "create"
-                ? "创建并解锁"
-                : "解锁"}
+              : mode === "auto"
+                ? "自动解锁中…"
+                : mode === "loading"
+                  ? "启动中…"
+                  : mode === "init" || mode === "create"
+                    ? "创建并解锁"
+                    : "解锁"}
           </button>
           {mode === "unlock" && (
             <button
