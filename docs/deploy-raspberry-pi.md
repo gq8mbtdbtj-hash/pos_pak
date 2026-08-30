@@ -65,6 +65,10 @@ cd server && go build -o personal-os-server ./cmd/server
 ```
 
 > 32 位树莓派内存较小，首次编译较慢，请耐心等待。
+>
+> **中国网络**：构建前设好镜像，避免卡在被墙的默认源：
+> `go env -w GOPROXY=https://goproxy.cn,direct` 与
+> `npm config set registry https://registry.npmmirror.com`。更省事的做法是用方式 A 在电脑上构建好再拷过去。
 
 ---
 
@@ -115,6 +119,9 @@ journalctl -u personal-os -f             # 看实时日志
 
 默认单元里 `POS_ADDR=127.0.0.1:8787`（只监听本机，配合反代/隧道用，见公网文档）。
 **若只在局域网直连**，把单元里的 `POS_ADDR` 改成 `0.0.0.0:8787` 并去掉 `POS_SECURE_COOKIE=1`，然后 `sudo systemctl daemon-reload && sudo systemctl restart personal-os`。
+
+单元里已内置 `TZ=Asia/Shanghai`（发薪周期/打卡日期按此时区计算）。也建议设好系统时区：
+`sudo timedatectl set-timezone Asia/Shanghai`。非中国用户改成自己的时区即可。
 
 ---
 

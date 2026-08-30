@@ -13,6 +13,8 @@ Group=personalos
 WorkingDirectory=/opt/personal-os
 
 # Bind to localhost when a reverse proxy / tunnel terminates TLS (recommended).
+# Timezone drives pay-period / check-in dates. Set to your locale (China below).
+Environment=TZ=Asia/Shanghai
 Environment=POS_ADDR=127.0.0.1:8787
 Environment=POS_DATA_DIR=/opt/personal-os/data
 Environment=POS_DIST_DIR=/opt/personal-os/dist

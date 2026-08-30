@@ -20,8 +20,10 @@
   --danger: #a63d2e;
   --shadow: 0 10px 30px rgba(28, 36, 32, 0.06);
   --radius: 14px;
-  --font-ui: "IBM Plex Sans", "Segoe UI", sans-serif;
-  --font-display: "Newsreader", "Times New Roman", serif;
+  --font-ui: "IBM Plex Sans", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Hiragino Sans GB", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  --font-display: "Newsreader", "Times New Roman", "Songti SC", "Source Han Serif SC",
+    "Noto Serif CJK SC", serif;
 
   font-family: var(--font-ui);
   font-size: 14px;

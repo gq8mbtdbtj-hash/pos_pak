@@ -141,3 +141,48 @@ POS_DATA_DIR=/opt/personal-os/data \
 | 有自己的 VPS，想完全自控 | **D（frp + VPS + Caddy）** |
 
 无论哪种，**强主密码 + 全程 HTTPS** 是底线；本程序已内置登录爆破退避与安全响应头。
+
+---
+
+## 5. 中国网络环境专用建议
+
+### 构建期依赖下载（避开被墙的默认源）
+
+- **Go 模块**：`go env -w GOPROXY=https://goproxy.cn,direct`（七牛 Goproxy 中国）。否则首次 `go run`/构建会卡在 `proxy.golang.org`。
+- **npm 依赖**：`npm config set registry https://registry.npmmirror.com`（淘宝镜像），或临时 `npm install --registry=https://registry.npmmirror.com`。
+- **最省事**：在**能顺畅联网的电脑**上 `npm run release` 构建好产物，再拷到树莓派离线运行——树莓派上零依赖、零下载。
+
+### 多设备同步优先用 Gitee
+
+GitHub 在国内访问慢/不稳。本程序**已支持 Gitee 私有仓**：设置页「配置新建」→ 平台选 **Gitee**，填仓库 HTTPS 地址 + 私人令牌（需仓库读写权限）。注意 **Gitee 新建空仓默认分支常为 `master`**，分支名要与设置里填的一致。数据在传输与远端均为密文。
+
+### 内网穿透 / 公网方式选型（按国内可用性）
+
+| 方式 | 国内可用性 | 备注 |
+|------|-----------|------|
+| **花生壳（Oray）HTTPS 映射** | 好 | 国内老牌，免注册域名即用；免费版有带宽/流量限制。见上文方式 C。 |
+| **frp + 国内 VPS**（阿里云/腾讯云） | 好 | 完全自控、稳定；VPS 上用 Caddy 出 HTTPS。见方式 D。 |
+| NATAPP / cpolar 等 | 中 | 与花生壳类似的商业穿透，按需选。 |
+| **Tailscale / WireGuard** | 中 | 私有组网、最省心；Tailscale 依赖 DERP 中继，个别网络下偶有连通问题，可自建 headscale/DERP。 |
+| Cloudflare Tunnel | 偏低 | 边缘节点在国内速度/连通性不稳，酌情使用。 |
+
+**只需要自己在外面用**：优先 **Tailscale**（无需域名、无需备案、WireGuard 加密）。
+**要真正的公网 HTTPS 域名**：优先 **花生壳 HTTPS** 或 **frp + 国内 VPS + 自有域名**。
+
+### ICP 备案
+
+若使用**中国大陆服务器 + 自有域名**对外提供 HTTP(S) 服务，域名需完成 **ICP 备案**，否则大陆机房会阻断 80/443。
+规避备案的做法：用花生壳提供的二级域名、或走 Tailscale（不对公网暴露、无需域名）。
+
+### 时区（务必设对）
+
+服务端按**运行机的本地时区**计算「发薪周期」「打卡日期」等。请确保时区为 `Asia/Shanghai`：
+
+```bash
+sudo timedatectl set-timezone Asia/Shanghai      # 系统级（推荐）
+# 或仅给进程设置（deploy/personal-os.service 已内置 TZ=Asia/Shanghai）
+```
+
+### 字体与离线
+
+应用字体已**随包自带**（不再访问 Google Fonts），国内网络与完全离线环境下都能正常显示。

@@ -68,6 +68,16 @@ npm run dev
 > `✅ 后端就绪`，此前浏览器出现的 `ECONNREFUSED 127.0.0.1:8787` / vite proxy error 属正常，
 > 等后端就绪即消失。若一直连不上，见下方「常见问题」。
 
+### 中国网络环境
+
+- **依赖下载慢/失败**：设镜像后再跑 `npm run dev`：
+  `go env -w GOPROXY=https://goproxy.cn,direct` 和
+  `npm config set registry https://registry.npmmirror.com`。
+- **多设备同步用 Gitee**（GitHub 国内不稳）：设置页「配置新建」平台选 Gitee；注意空仓默认分支常为 `master`。
+- **公网访问**：优先花生壳 HTTPS / frp+国内VPS / Tailscale；涉及大陆服务器+域名需 ICP 备案。详见 [`docs/deploy-public-internet.md`](./docs/deploy-public-internet.md) 的「中国网络环境专用建议」。
+- **时区**：发薪周期/打卡按运行机本地时区，请设 `Asia/Shanghai`（systemd 单元已内置 `TZ`）。
+- **字体**：已随包自带，无需 Google Fonts，国内/离线均正常。
+
 ### 常见问题
 
 - **`[vite] http proxy error … ECONNREFUSED 127.0.0.1:8787`**：后端（Go）还没起来。
