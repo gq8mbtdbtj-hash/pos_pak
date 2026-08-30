@@ -31,12 +31,22 @@ console.log(`• 使用 ${goCheck.stdout.trim()}`);
 
 const children = [];
 
-function run(name, command, args, cwd, extraEnv = {}) {
-  const child = spawn(command, args, {
+function run(name, command, args, cwd, extraEnv = {}, needsShell = false) {
+  let spawnCmd = command;
+  let spawnArgs = args;
+  let useShell = false;
+  if (isWindows && needsShell) {
+    // On Windows, .cmd shims need a shell; pass a single string (not an args
+    // array) to avoid the DEP0190 shell-args deprecation warning.
+    spawnCmd = [command, ...args].join(" ");
+    spawnArgs = [];
+    useShell = true;
+  }
+  const child = spawn(spawnCmd, spawnArgs, {
     cwd,
     env: { ...process.env, ...extraEnv },
     stdio: ["ignore", "pipe", "pipe"],
-    shell: isWindows,
+    shell: useShell,
   });
   const prefix = `[${name}] `;
   const pipe = (stream, out) => {
@@ -111,11 +121,18 @@ function pollHealth() {
   });
 }
 
-run("go", goCmd, ["run", "./cmd/server"], join(root, "server"), {
-  POS_DATA_DIR: process.env.POS_DATA_DIR || join(root, "server", "data", "personal-os"),
-  GOTOOLCHAIN: process.env.GOTOOLCHAIN || "auto",
-});
-run("vite", npmCmd, ["run", "dev:web"], root);
+run(
+  "go",
+  goCmd,
+  ["run", "./cmd/server"],
+  join(root, "server"),
+  {
+    POS_DATA_DIR: process.env.POS_DATA_DIR || join(root, "server", "data", "personal-os"),
+    GOTOOLCHAIN: process.env.GOTOOLCHAIN || "auto",
+  },
+  false, // go(.exe) is a real binary; no shell needed
+);
+run("vite", npmCmd, ["run", "dev:web"], root, {}, true); // npm(.cmd) needs a shell on Windows
 
 console.log(
   "\n  Personal OS (pure-web) 开发服务器启动中…\n" +
