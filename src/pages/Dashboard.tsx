@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryPie from "../components/CategoryPie";
+import DueRiskStrip from "../components/DueRiskStrip";
 import FinanceChart from "../components/FinanceChart";
 import InputDock from "../components/InputDock";
 import PageShell from "../components/PageShell";
+import { SELECT_GOAL_KEY, openPaySnapshotEditor } from "../lib/glance";
+import { isMobile } from "../lib/platform";
 import {
   api,
   ChartBucket,
@@ -44,9 +47,11 @@ function trimChart(data: ChartBucket[]): ChartBucket[] {
 }
 
 export default function Dashboard({ onNavigate }: Props) {
+  const mobile = isMobile();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [todayTasks, setTodayTasks] = useState<Task[]>([]);
   const [checkins, setCheckins] = useState<Goal[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [capture, setCapture] = useState("");
@@ -54,24 +59,34 @@ export default function Dashboard({ onNavigate }: Props) {
   const [chartView, setChartView] = useState<"trend" | "category">("trend");
 
   const load = useCallback(async () => {
-    const [s, sum, t, g] = await Promise.all([
+    const [s, sum, allTasks, t, g] = await Promise.all([
       api.getDashboard(),
       api.financeSummary(),
+      api.taskList(),
       api.taskListToday(),
       api.goalList(),
     ]);
     setStats(s);
     setSummary(sum);
-    setTasks(t);
+    setTasks(allTasks);
+    setTodayTasks(t);
     const active = g.filter((x) => x.status === "active");
     setCheckins(
-      active.filter((x) => x.kind === "checkin" || x.kind === "habit").slice(0, 6),
+      active.filter((x) => x.kind === "checkin" || x.kind === "habit").slice(0, 8),
     );
     setGoals(active.filter((x) => x.kind === "plan" || x.kind === "normal" || !x.kind).slice(0, 4));
   }, []);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
+    const onPrefs = () => {
+      void load();
+    };
+    window.addEventListener("personal-os:prefs-changed", onPrefs);
+    return () => window.removeEventListener("personal-os:prefs-changed", onPrefs);
   }, [load]);
 
   const handleCapture = async () => {
@@ -98,11 +113,46 @@ export default function Dashboard({ onNavigate }: Props) {
     load();
   };
 
+  const tapHabit = async (g: Goal) => {
+    if (g.kind === "habit") {
+      if (g.checkedToday) return;
+      await api.goalAddCheckin(g.id, { value: 1 });
+      load();
+      return;
+    }
+    try {
+      sessionStorage.setItem(SELECT_GOAL_KEY, g.id);
+    } catch {
+      /* ignore */
+    }
+    onNavigate("habits");
+  };
+
   const chartData = useMemo(
     () => (summary ? trimChart(summary.chartMonth) : []),
     [summary],
   );
   const pieData = summary?.categoryMonth ?? [];
+
+  const glance = summary?.payPeriodGlance;
+  const periodFlow = summary
+    ? summary.payPeriod.income - summary.payPeriod.expense
+    : stats
+      ? (stats.payPeriodIncome ?? 0) - (stats.payPeriodExpense ?? 0)
+      : 0;
+  const payNet = glance?.effective ?? stats?.payPeriodEffective ?? periodFlow;
+  const openingMissing =
+    glance?.openingMissing ?? stats?.payPeriodOpeningMissing ?? true;
+  const opening = glance?.opening ?? stats?.payPeriodOpening ?? null;
+  const afterDebts = glance?.afterDebts ?? stats?.payPeriodAfterDebts;
+  const dueThisPeriod = glance?.dueThisPeriod ?? stats?.payPeriodDueThisPeriod ?? 0;
+  const payLabel = summary?.payPeriodLabel || stats?.payPeriodLabel || "发薪周期";
+  const lastSnap = summary?.snapshots?.[0];
+  const pending = summary?.pendingSnapshot;
+  const atRisk = checkins.filter((g) => g.kind === "habit" && g.streakAtRisk).length;
+  const habitLine = stats
+    ? `今日 ${stats.habitsDone} / ${stats.habitsTotal}${atRisk > 0 ? " · 连续有风险" : ""}`
+    : "";
 
   return (
     <PageShell
@@ -128,19 +178,49 @@ export default function Dashboard({ onNavigate }: Props) {
           <section className="panel">
             <div className="fiscal-banner">
               <div>
-                <span className="muted">当月总体盈亏</span>
-                <strong className={stats.monthNet >= 0 ? "amount-income" : "amount-expense"}>
-                  {stats.monthNet >= 0 ? "+" : ""}¥{money(stats.monthNet)}
+                <span className="muted">有效结余 · {payLabel}</span>
+                <strong className={payNet >= 0 ? "amount-income" : "amount-expense"}>
+                  {payNet >= 0 ? "+" : ""}¥{money(payNet)}
                 </strong>
               </div>
               <div className="fiscal-banner-sub">
-                <span>收入 ¥{money(stats.monthIncome)}</span>
-                <span>支出 ¥{money(stats.monthExpense)}</span>
+                <span>收入 ¥{money(summary?.payPeriod.income ?? stats.payPeriodIncome ?? 0)}</span>
+                <span>支出 ¥{money(summary?.payPeriod.expense ?? stats.payPeriodExpense ?? 0)}</span>
                 <button type="button" className="linkish" onClick={() => onNavigate("finance")}>
                   记账详情
                 </button>
               </div>
             </div>
+            <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+              {openingMissing
+                ? `未确认上期 · 仅账单净额 ${periodFlow >= 0 ? "+" : ""}¥${money(periodFlow)}`
+                : `含上期结余 ${opening != null && opening >= 0 ? "+" : ""}¥${money(opening ?? 0)} · 账单净额 ${periodFlow >= 0 ? "+" : ""}¥${money(periodFlow)}`}
+              {afterDebts != null
+                ? ` · 还债后 ${afterDebts >= 0 ? "+" : ""}¥${money(afterDebts)}${dueThisPeriod > 0 ? `（应还 ¥${money(dueThisPeriod)}）` : ""}`
+                : ""}
+            </p>
+            {pending ? (
+              <button
+                type="button"
+                className="pending-banner amount-expense"
+                onClick={() => openPaySnapshotEditor()}
+              >
+                上期结余待确认 · {pending.periodLabel} · {pending.net >= 0 ? "+" : ""}¥
+                {money(pending.net)} · 点此修正
+              </button>
+            ) : lastSnap ? (
+              <button
+                type="button"
+                className="pending-banner muted"
+                onClick={() => openPaySnapshotEditor(lastSnap.id)}
+              >
+                上期已存档 · {lastSnap.periodLabel} · {lastSnap.net >= 0 ? "+" : ""}¥
+                {money(lastSnap.net)} · 点此修正
+              </button>
+            ) : null}
+            <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+              日历月盈亏 {stats.monthNet >= 0 ? "+" : ""}¥{money(stats.monthNet)}
+            </p>
             <div className="flow-strip finance-flow dash-flow">
               <div className="flow-stat">
                 <span>任务</span>
@@ -163,6 +243,7 @@ export default function Dashboard({ onNavigate }: Props) {
                 <strong className="amount-expense">¥{money(stats.debtRemaining ?? 0)}</strong>
               </div>
             </div>
+            <DueRiskStrip tasks={tasks} onOpen={() => onNavigate("tasks")} />
             {(stats.debtMonthlyObligation > 0 || stats.monthsToPayoff) && (
               <p className="muted dash-debt-hint">
                 计划月供 ¥{money(stats.debtMonthlyObligation ?? 0)}
@@ -177,7 +258,7 @@ export default function Dashboard({ onNavigate }: Props) {
           </section>
         )}
 
-        {summary && (
+        {summary && !mobile && (
           <section className="panel">
             <div className="chart-solo">
               <div className="chart-block chart-block--solo chart-block--dash">
@@ -224,10 +305,10 @@ export default function Dashboard({ onNavigate }: Props) {
                 管理
               </button>
             </div>
-            {tasks.length === 0 ? (
+            {todayTasks.length === 0 ? (
               <p className="empty-state compact">暂无任务</p>
             ) : (
-              tasks.map((t) => (
+              todayTasks.map((t) => (
                 <div key={t.id} className="list-item">
                   <input
                     type="checkbox"
@@ -249,28 +330,41 @@ export default function Dashboard({ onNavigate }: Props) {
                 管理
               </button>
             </div>
+            {habitLine && <p className="muted hint">{habitLine}</p>}
             {checkins.length === 0 ? (
               <p className="empty-state compact">暂无习惯或打卡</p>
             ) : (
               checkins.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  className="list-item list-item--btn"
-                  onClick={() => onNavigate("habits")}
-                >
-                  <span>
-                    <span className="goal-kind-badge">
-                      {g.kind === "habit" ? "习惯" : "打卡"}
+                <div key={g.id} className="list-item dash-habit-row">
+                  {g.kind === "habit" ? (
+                    <input
+                      className="dash-habit-check"
+                      type="checkbox"
+                      checked={!!g.checkedToday}
+                      onChange={() => void tapHabit(g)}
+                      aria-label={`打卡 ${g.title}`}
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="list-item--btn"
+                    style={{ flex: 1, border: "none", background: "transparent", textAlign: "left" }}
+                    onClick={() => void tapHabit(g)}
+                  >
+                    <span>
+                      <span className="goal-kind-badge">
+                        {g.kind === "habit" ? "习惯" : "打卡"}
+                      </span>
+                      {g.title}
                     </span>
-                    {g.title}
-                  </span>
-                  <span className="muted">
-                    {g.kind === "habit" && g.streak != null
-                      ? `连续 ${g.streak}/66`
-                      : `${g.progress}%`}
-                  </span>
-                </button>
+                    <span className="muted">
+                      {g.kind === "habit" && g.streak != null
+                        ? `连续 ${g.streak}/66${g.gap != null && g.gap > 0 ? ` · 还差 ${g.gap} 天` : ""}`
+                        : `${g.progress}%`}
+                      {g.kind === "checkin" ? " · 填实测" : ""}
+                    </span>
+                  </button>
+                </div>
               ))
             )}
             {goals.length > 0 && (
@@ -281,7 +375,14 @@ export default function Dashboard({ onNavigate }: Props) {
                     key={g.id}
                     type="button"
                     className="goal-card"
-                    onClick={() => onNavigate("habits")}
+                    onClick={() => {
+                      try {
+                        sessionStorage.setItem(SELECT_GOAL_KEY, g.id);
+                      } catch {
+                        /* ignore */
+                      }
+                      onNavigate("habits");
+                    }}
                   >
                     <div className="goal-card-top">
                       <strong>{g.title}</strong>

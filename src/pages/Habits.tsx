@@ -5,6 +5,8 @@ import DockDateField from "../components/DockDateField";
 import PageShell from "../components/PageShell";
 import CheckinChart from "../components/CheckinChart";
 import { toastErr } from "../components/Toast";
+import { SELECT_GOAL_KEY } from "../lib/glance";
+import { isMobile } from "../lib/platform";
 
 type GoalDock = "goal" | "log";
 type GoalKind = "plan" | "habit" | "checkin";
@@ -67,6 +69,26 @@ function latestCheckinPerDay(checkins: GoalDetail["checkins"]) {
   );
 }
 
+function HabitHeatmap({ dates }: { dates: string[] }) {
+  const set = new Set(dates.map((d) => d.slice(0, 10)));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const cells = [];
+  for (let i = 83; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    cells.push(
+      <div
+        key={key}
+        className={`habit-heat-cell${set.has(key) ? " habit-heat-cell--on" : ""}`}
+        title={key}
+      />,
+    );
+  }
+  return <div className="habit-heat" aria-label="近 12 周出勤">{cells}</div>;
+}
+
 export default function HabitsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<GoalDetail | null>(null);
@@ -82,6 +104,7 @@ export default function HabitsPage() {
   const [logAt, setLogAt] = useState(defaultLogAtHour);
   const [milestoneTitle, setMilestoneTitle] = useState("");
   const [milestoneDue, setMilestoneDue] = useState("");
+  const [showCheckinChart, setShowCheckinChart] = useState(() => !isMobile());
 
   const refreshGoals = useCallback(async (preferId?: string | null) => {
     const list = await api.goalList();
@@ -108,7 +131,19 @@ export default function HabitsPage() {
 
   const load = useCallback(async () => {
     try {
-      await refreshGoals();
+      let prefer: string | null = null;
+      try {
+        prefer = sessionStorage.getItem(SELECT_GOAL_KEY);
+        if (prefer) sessionStorage.removeItem(SELECT_GOAL_KEY);
+      } catch {
+        /* ignore */
+      }
+      if (prefer) {
+        const list = await api.goalList();
+        const g = list.find((x) => x.id === prefer);
+        if (g) setGoalFilter(normalizeKind(g.kind));
+      }
+      await refreshGoals(prefer);
     } catch (e) {
       toastErr(String(e));
     }
@@ -689,13 +724,24 @@ export default function HabitsPage() {
 
               {selectedKind === "checkin" ? (
                 <>
+                  {isMobile() && chartReady && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost workbench-toggle"
+                      onClick={() => setShowCheckinChart((v) => !v)}
+                    >
+                      {showCheckinChart ? "收起折线" : "查看打卡折线"}
+                    </button>
+                  )}
                   {chartReady ? (
+                    (!isMobile() || showCheckinChart) ? (
                     <CheckinChart
                       checkins={selectedGoal.checkins}
                       targetValue={chartTarget}
                       targetDate={selectedGoal.goal.targetDate}
                       unit={selectedGoal.goal.unit}
                     />
+                    ) : null
                   ) : (
                     <p className="empty-state compact">
                       缺少目标值，请重建该打卡任务（目标如 76 + 单位 kg）
@@ -739,6 +785,9 @@ export default function HabitsPage() {
                   <p className="muted hint" style={{ marginBottom: "0.75rem" }}>
                     漏 1 天可延续；连续 2 天未打卡则中断。
                   </p>
+                  {!isMobile() && selectedGoal.checkins.length > 0 && (
+                    <HabitHeatmap dates={selectedGoal.checkins.map((c) => c.date)} />
+                  )}
                   {selectedGoal.checkins.length === 0 ? (
                     <p className="empty-state compact">暂无打卡，用底部一键打卡</p>
                   ) : (

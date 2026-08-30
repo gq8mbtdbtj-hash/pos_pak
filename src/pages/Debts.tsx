@@ -9,6 +9,8 @@ import {
 } from "../services/api";
 import { showToast } from "../components/Toast";
 import PageShell from "../components/PageShell";
+import { dueRiskLevel } from "../components/DebtReminderPopups";
+import { isMobile } from "../lib/platform";
 
 function progress(debt: Debt) {
   if (debt.principal <= 0) return 100;
@@ -81,6 +83,15 @@ function previewPlan(
   };
 }
 
+function installmentDays(dueDate: string, now = new Date()): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
+  if (!m) return null;
+  const due = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const a = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((a - b) / 86400000);
+}
+
 export default function DebtsPage({
   onNavigate,
 }: {
@@ -103,6 +114,9 @@ export default function DebtsPage({
   const [planTerm, setPlanTerm] = useState("12");
   const [planStart, setPlanStart] = useState("");
   const [editRate, setEditRate] = useState("");
+  const mobile = isMobile();
+  const [showForm, setShowForm] = useState(() => !isMobile());
+  const [showPlan, setShowPlan] = useState(() => !isMobile());
 
   const flash = (text: string, kind: "ok" | "err" | "info" = "ok") => {
     showToast(kind, text);
@@ -373,6 +387,15 @@ export default function DebtsPage({
                   <span className="muted"> · {u.planTitle}</span>
                 </div>
                 <div className="upcoming-meta">
+                  {(() => {
+                    const days = installmentDays(u.dueDate);
+                    const level = days == null ? null : dueRiskLevel(days);
+                    return level ? (
+                      <span className={`risk-chip risk-chip--${level} upcoming-risk`}>
+                        {level === "high" ? "高风险" : "低风险"}
+                      </span>
+                    ) : null;
+                  })()}
                   <span className="muted">{u.dueDate}</span>
                   <strong className="amount-expense">¥{money(u.amount)}</strong>
                   <button className="btn" onClick={() => payInstallment(u.installmentId)}>
@@ -451,6 +474,18 @@ export default function DebtsPage({
                 </button>
               </div>
 
+              {mobile && (
+                <button
+                  type="button"
+                  className="btn btn-ghost workbench-toggle"
+                  onClick={() => setShowPlan((v) => !v)}
+                >
+                  {showPlan ? "收起分期管理" : "管理还款计划"}
+                </button>
+              )}
+
+              {(!mobile || showPlan) && (
+              <>
               {activePlan ? (
                 <div className="plan-block plan-block--readonly">
                   <div className="plan-block-head">
@@ -559,10 +594,11 @@ export default function DebtsPage({
                 </div>
               )}
 
-              <div className="debt-actions debt-actions--edit">
-                <p className="section-label debt-edit-label">编辑</p>
-                {renderPlanEditor(!!activePlan)}
+              {(!mobile || showPlan) && renderPlanEditor(!!activePlan)}
+              </>
+              )}
 
+              <div className="debt-actions debt-actions--edit">
                 <div className="action-block">
                   <h4 className="section-label">手动还款</h4>
                   <p className="muted hint">不走分期表时使用；整笔记入本金扣减（提前还本等）。</p>
@@ -589,6 +625,16 @@ export default function DebtsPage({
 
       <section className="panel">
         <h3 className="section-label">新增外债</h3>
+        {mobile && (
+          <button
+            type="button"
+            className="btn btn-ghost workbench-toggle"
+            onClick={() => setShowForm((v) => !v)}
+          >
+            {showForm ? "收起表单" : "添加外债"}
+          </button>
+        )}
+        {(!mobile || showForm) && (
         <div className="debt-form">
           <label className="field">
             <span>名称</span>
@@ -643,6 +689,7 @@ export default function DebtsPage({
             </button>
           </div>
         </div>
+        )}
       </section>
     </PageShell>
   );

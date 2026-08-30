@@ -84,6 +84,10 @@ pub struct Goal {
     pub streak: Option<i32>,
     #[serde(default)]
     pub formed: Option<bool>,
+    #[serde(default)]
+    pub checked_today: Option<bool>,
+    #[serde(default)]
+    pub streak_at_risk: Option<bool>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -48,6 +48,8 @@ export interface Goal {
   gap?: number;
   streak?: number;
   formed?: boolean;
+  checkedToday?: boolean;
+  streakAtRisk?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -128,6 +130,7 @@ export interface FinanceSummary {
   month: MoneyFlow;
   payPeriod: MoneyFlow;
   payPeriodLabel: string;
+  payPeriodGlance?: PayPeriodGlance;
   byCategory: CategorySum[];
   categoryDay: CategorySum[];
   categoryWeek: CategorySum[];
@@ -138,6 +141,39 @@ export interface FinanceSummary {
   debtRepaymentMonth: number;
   debtRemaining: number;
   debtMonthlyObligation: number;
+  pendingSnapshot?: PayPeriodPending | null;
+  snapshots?: PayPeriodSnapshot[];
+}
+
+export interface PayPeriodGlance {
+  opening?: number | null;
+  openingPeriodLabel?: string | null;
+  openingMissing: boolean;
+  periodFlow: number;
+  effective: number;
+  dueThisPeriod: number;
+  afterDebts: number;
+}
+
+export interface PayPeriodPending {
+  periodStart: string;
+  periodEnd: string;
+  periodLabel: string;
+  income: number;
+  expense: number;
+  net: number;
+}
+
+export interface PayPeriodSnapshot {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  periodLabel: string;
+  income: number;
+  expense: number;
+  net: number;
+  confirmedAt: string;
+  note?: string;
 }
 
 export interface AppPrefs {
@@ -153,6 +189,14 @@ export interface DashboardStats {
   monthIncome: number;
   monthExpense: number;
   monthNet: number;
+  payPeriodIncome?: number;
+  payPeriodExpense?: number;
+  payPeriodLabel?: string;
+  payPeriodEffective?: number;
+  payPeriodOpening?: number | null;
+  payPeriodOpeningMissing?: boolean;
+  payPeriodDueThisPeriod?: number;
+  payPeriodAfterDebts?: number;
   debtRemaining: number;
   debtMonthlyObligation: number;
   monthsToPayoff?: number;
@@ -461,6 +505,10 @@ export const api = {
   ) => invoke<Transaction>("finance_update", { id, input }),
   financeList: (limit?: number) => invoke<Transaction[]>("finance_list", { limit }),
   financeSummary: () => invoke<FinanceSummary>("finance_summary"),
+  financeConfirmPayPeriod: (input?: { net?: number; note?: string }) =>
+    invoke<PayPeriodSnapshot>("finance_confirm_pay_period", { input: input ?? {} }),
+  financeUpdatePayPeriod: (id: string, input: { net?: number; note?: string }) =>
+    invoke<PayPeriodSnapshot>("finance_update_pay_period", { id, input }),
   financeDelete: (id: string) => invoke<void>("finance_delete", { id }),
   financeCategories: () => invoke<string[]>("finance_categories"),
 

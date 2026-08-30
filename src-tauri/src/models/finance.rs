@@ -92,6 +92,9 @@ pub struct FinanceSummary {
     pub pay_period: MoneyFlow,
     /// e.g. "3/1 – 3/31"
     pub pay_period_label: String,
+    /// Opening → effective → after-debts glance (Spec §1).
+    #[serde(default)]
+    pub pay_period_glance: PayPeriodGlance,
     pub by_category: Vec<CategorySum>,
     pub category_day: Vec<CategorySum>,
     pub category_week: Vec<CategorySum>,
@@ -103,6 +106,68 @@ pub struct FinanceSummary {
     pub debt_repayment_month: f64,
     pub debt_remaining: f64,
     pub debt_monthly_obligation: f64,
+    #[serde(default)]
+    pub pending_snapshot: Option<PayPeriodPending>,
+    #[serde(default)]
+    pub snapshots: Vec<PayPeriodSnapshot>,
+}
+
+/// Derived pay-period cash position (Spec §1).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayPeriodGlance {
+    /// Confirmed prior-period surplus; none if not archived yet.
+    pub opening: Option<f64>,
+    pub opening_period_label: Option<String>,
+    /// True when prior period has no confirmed snapshot.
+    pub opening_missing: bool,
+    /// Period income − expense (same as pay_period net).
+    pub period_flow: f64,
+    /// opening + period_flow, or period_flow alone when opening missing.
+    pub effective: f64,
+    /// Unpaid installments due inside the current pay window.
+    pub due_this_period: f64,
+    /// effective − due_this_period.
+    pub after_debts: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayPeriodPending {
+    pub period_start: String,
+    pub period_end: String,
+    pub period_label: String,
+    pub income: f64,
+    pub expense: f64,
+    pub net: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PayPeriodSnapshot {
+    pub id: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub period_label: String,
+    pub income: f64,
+    pub expense: f64,
+    pub net: f64,
+    pub confirmed_at: DateTime<Utc>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmPayPeriodInput {
+    pub net: Option<f64>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePayPeriodInput {
+    pub net: Option<f64>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

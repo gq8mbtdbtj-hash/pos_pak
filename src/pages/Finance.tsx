@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CategoryPie from "../components/CategoryPie";
+import DueRiskStrip from "../components/DueRiskStrip";
 import FinanceChart from "../components/FinanceChart";
 import InputDock from "../components/InputDock";
 import PageShell from "../components/PageShell";
 import Select from "../components/Select";
-import { api, ChartBucket, FinanceSummary, Transaction } from "../services/api";
+import SurplusHistory from "../components/SurplusHistory";
+import { openPaySnapshotEditor } from "../lib/glance";
+import { isMobile } from "../lib/platform";
+import { api, ChartBucket, FinanceSummary, Task, Transaction } from "../services/api";
 
 type Range = "day" | "week" | "month";
 
@@ -100,16 +104,21 @@ export default function FinancePage({
   const [message, setMessage] = useState("");
   const [range, setRange] = useState<Range>("month");
   const [chartView, setChartView] = useState<"trend" | "category">("trend");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [showCharts, setShowCharts] = useState(() => !isMobile());
+  const mobile = isMobile();
 
   const load = useCallback(async () => {
-    const [sum, cats, txs] = await Promise.all([
+    const [sum, cats, txs, t] = await Promise.all([
       api.financeSummary(),
       api.financeCategories(),
       api.financeList(500),
+      api.taskList(),
     ]);
     setSummary(sum);
     setCategories(cats);
     setTransactions(txs);
+    setTasks(t);
   }, []);
 
   useEffect(() => {
@@ -201,9 +210,15 @@ export default function FinancePage({
 
   const current = summary ? flow(summary, range) : null;
   const pieData = summary ? categoriesFor(summary, range) : [];
-  const net = summary
+  const glance = summary?.payPeriodGlance;
+  const periodFlow = summary
     ? summary.payPeriod.income - summary.payPeriod.expense
     : 0;
+  const net = glance?.effective ?? periodFlow;
+  const openingMissing = glance?.openingMissing ?? true;
+  const opening = glance?.opening ?? null;
+  const afterDebts = glance?.afterDebts;
+  const dueThisPeriod = glance?.dueThisPeriod ?? 0;
   const monthNet = summary ? summary.month.income - summary.month.expense : 0;
 
   return (
@@ -251,16 +266,47 @@ export default function FinancePage({
         <section className="panel">
           <div className="fiscal-banner">
             <div>
-              <span className="muted">当月总体盈亏</span>
-              <strong className={monthNet >= 0 ? "amount-income" : "amount-expense"}>
-                {monthNet >= 0 ? "+" : ""}¥{money(monthNet)}
+              <span className="muted">有效结余 · {summary.payPeriodLabel || "发薪周期"}</span>
+              <strong className={net >= 0 ? "amount-income" : "amount-expense"}>
+                {net >= 0 ? "+" : ""}¥{money(net)}
               </strong>
             </div>
             <div className="fiscal-banner-sub">
-              <span>收入 ¥{money(summary.month.income)}</span>
-              <span>支出 ¥{money(summary.month.expense)}</span>
+              <span>收入 ¥{money(summary.payPeriod.income)}</span>
+              <span>支出 ¥{money(summary.payPeriod.expense)}</span>
             </div>
           </div>
+          <p className="muted" style={{ margin: "0.35rem 0 0" }}>
+            {openingMissing
+              ? `未确认上期 · 仅账单净额 ${periodFlow >= 0 ? "+" : ""}¥${money(periodFlow)}`
+              : `含上期结余 ${opening != null && opening >= 0 ? "+" : ""}¥${money(opening ?? 0)} · 账单净额 ${periodFlow >= 0 ? "+" : ""}¥${money(periodFlow)}`}
+            {afterDebts != null
+              ? ` · 还债后 ${afterDebts >= 0 ? "+" : ""}¥${money(afterDebts)}${dueThisPeriod > 0 ? `（应还 ¥${money(dueThisPeriod)}）` : ""}`
+              : ""}
+          </p>
+          <p className="muted" style={{ margin: "0.2rem 0 0" }}>
+            日历月盈亏 {monthNet >= 0 ? "+" : ""}¥{money(monthNet)}
+          </p>
+          {summary.pendingSnapshot ? (
+            <button
+              type="button"
+              className="pending-banner amount-expense"
+              onClick={() => openPaySnapshotEditor()}
+            >
+              上期结余待确认 · {summary.pendingSnapshot.periodLabel} ·{" "}
+              {summary.pendingSnapshot.net >= 0 ? "+" : ""}¥{money(summary.pendingSnapshot.net)} ·
+              点此修正
+            </button>
+          ) : summary.snapshots?.[0] ? (
+            <button
+              type="button"
+              className="pending-banner muted"
+              onClick={() => openPaySnapshotEditor(summary.snapshots![0].id)}
+            >
+              上期已存档 · {summary.snapshots[0].periodLabel} ·{" "}
+              {summary.snapshots[0].net >= 0 ? "+" : ""}¥{money(summary.snapshots[0].net)} · 点此修正
+            </button>
+          ) : null}
         </section>
       )}
 
@@ -276,7 +322,7 @@ export default function FinancePage({
               <strong className="amount-expense">¥{money(current.expense)}</strong>
             </div>
             <div className="flow-stat">
-              <span>结余 · {summary.payPeriodLabel || "发薪周期"}</span>
+              <span>有效结余 · {summary.payPeriodLabel || "发薪周期"}</span>
               <strong className={net >= 0 ? "amount-income" : "amount-expense"}>
                 {net >= 0 ? "+" : ""}¥{money(net)}
               </strong>
@@ -286,6 +332,21 @@ export default function FinancePage({
               <strong className="amount-expense">¥{money(summary.debtRemaining ?? 0)}</strong>
             </div>
           </div>
+          <DueRiskStrip
+            tasks={tasks}
+            compact
+            onOpen={() => onNavigate("debts")}
+          />
+          {afterDebts != null && (
+            <p
+              className={`muted finance-buffer ${afterDebts < 0 ? "amount-expense" : ""}`}
+              style={{ margin: "0.4rem 0 0" }}
+            >
+              还债后可支配 {afterDebts >= 0 ? "+" : ""}¥{money(afterDebts)}
+              {dueThisPeriod > 0 ? ` · 本期内应还 ¥${money(dueThisPeriod)}` : " · 本期内无未还分期"}
+              {afterDebts < 0 ? " · 吃紧" : ""}
+            </p>
+          )}
 
           {(summary.debtRepaymentMonth > 0 || summary.debtMonthlyObligation > 0) && (
             <div className="finance-debt-link">
@@ -302,6 +363,16 @@ export default function FinancePage({
           )}
 
           <div className="chart-solo">
+            {mobile && (
+              <button
+                type="button"
+                className="btn btn-ghost workbench-toggle"
+                onClick={() => setShowCharts((v) => !v)}
+              >
+                {showCharts ? "收起图表" : "查看图表与结余存档"}
+              </button>
+            )}
+            {showCharts && (
             <div className="chart-block chart-block--solo">
               <div className="chart-block-title">
                 <div className="segmented chart-view-toggle" role="tablist" aria-label="图表类型">
@@ -341,6 +412,18 @@ export default function FinancePage({
                 <CategoryPie data={pieData} size="lg" />
               )}
             </div>
+            )}
+            {showCharts && (
+              <div style={{ marginTop: "1rem" }}>
+                <h4 className="section-label">近几期结余存档</h4>
+                <p className="muted hint">发薪日后会弹出提醒；确认后作下期期初。点柱或点上方「修正」可改结余。</p>
+                <SurplusHistory
+                  snapshots={summary.snapshots ?? []}
+                  openingPeriodLabel={glance?.openingPeriodLabel}
+                  effective={glance?.effective}
+                />
+              </div>
+            )}
           </div>
         </section>
       )}

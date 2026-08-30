@@ -95,6 +95,8 @@ pub fn run() {
             commands::finance_update,
             commands::finance_list,
             commands::finance_summary,
+            commands::finance_confirm_pay_period,
+            commands::finance_update_pay_period,
             commands::prefs_get,
             commands::prefs_set_payday,
             commands::finance_delete,

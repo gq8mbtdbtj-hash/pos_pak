@@ -4,7 +4,8 @@ use crate::models::debt::{
     CreateRepaymentPlanInput, Debt, DebtDetail, DebtOverview, RepaymentPlan, UpdateDebtInput,
 };
 use crate::models::finance::{
-    CreateTransactionInput, FinanceSummary, Transaction, UpdateTransactionInput,
+    ConfirmPayPeriodInput, CreateTransactionInput, FinanceSummary, PayPeriodSnapshot, Transaction,
+    UpdatePayPeriodInput, UpdateTransactionInput,
 };
 use crate::models::habit::{CreateHabitInput, HabitWithStats};
 use crate::models::goal::{
@@ -773,6 +774,27 @@ pub fn finance_summary(state: State<AppState>) -> AppResult<FinanceSummary> {
         let payday = crate::services::app_prefs::load(&s.data_dir)?.payday;
         FinanceService::new(&s.db).summary(payday)
     })
+}
+
+#[tauri::command]
+pub fn finance_confirm_pay_period(
+    state: State<AppState>,
+    input: Option<ConfirmPayPeriodInput>,
+) -> AppResult<PayPeriodSnapshot> {
+    state.with_session(|s| {
+        let payday = crate::services::app_prefs::load(&s.data_dir)?.payday;
+        let input = input.unwrap_or_default();
+        FinanceService::new(&s.db).confirm_previous_snapshot(payday, input.net, input.note)
+    })
+}
+
+#[tauri::command]
+pub fn finance_update_pay_period(
+    state: State<AppState>,
+    id: String,
+    input: UpdatePayPeriodInput,
+) -> AppResult<PayPeriodSnapshot> {
+    state.with_session(|s| FinanceService::new(&s.db).update_snapshot(&id, input.net, input.note))
 }
 
 #[tauri::command]

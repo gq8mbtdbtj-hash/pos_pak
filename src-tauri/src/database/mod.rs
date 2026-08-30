@@ -232,6 +232,17 @@ impl Database {
                 );
                 CREATE INDEX IF NOT EXISTS idx_goal_checkins_goal_date
                     ON goal_checkins(goal_id, date);
+
+                CREATE TABLE IF NOT EXISTS pay_period_snapshots (
+                    id TEXT PRIMARY KEY,
+                    period_start TEXT NOT NULL UNIQUE,
+                    period_end TEXT NOT NULL,
+                    income REAL NOT NULL,
+                    expense REAL NOT NULL,
+                    net REAL NOT NULL,
+                    confirmed_at TEXT NOT NULL,
+                    note TEXT
+                );
                 ",
             )?;
             // Existing DBs created before plan modes / principal-interest split.
@@ -324,6 +335,18 @@ impl Database {
                  END
                  WHERE opening_remaining IS NULL",
                 [],
+            )?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS pay_period_snapshots (
+                    id TEXT PRIMARY KEY,
+                    period_start TEXT NOT NULL UNIQUE,
+                    period_end TEXT NOT NULL,
+                    income REAL NOT NULL,
+                    expense REAL NOT NULL,
+                    net REAL NOT NULL,
+                    confirmed_at TEXT NOT NULL,
+                    note TEXT
+                );",
             )?;
             crate::services::goal::migrate_schema_and_habits(conn)?;
             Ok(())

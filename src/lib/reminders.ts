@@ -78,18 +78,26 @@ export async function refreshLocalReminders(): Promise<void> {
       markSent(key);
     }
 
-    const activeCheckins = goals.filter(
+    const pending = goals.filter(
       (g) =>
         (g.kind === "checkin" || g.kind === "habit") &&
         g.status === "active" &&
-        !g.formed,
+        !g.formed &&
+        !g.checkedToday,
     );
-    if (activeCheckins.length > 0 && hour >= 20) {
+    if (pending.length > 0 && hour >= 20) {
       const key = `checkins:${dayKey}`;
       if (!alreadySent(key)) {
+        const names = pending
+          .slice(0, 3)
+          .map((g) => g.title)
+          .join("、");
         await sendNotification({
           title: "养成提醒",
-          body: `还有 ${activeCheckins.length} 个习惯/打卡进行中`,
+          body:
+            pending.length === 1
+              ? `${names} 尚未打卡`
+              : `${names}${pending.length > 3 ? "…" : ""} 等 ${pending.length} 项尚未打卡`,
         });
         markSent(key);
       }

@@ -3576,6 +3576,189 @@ html[data-keyboard-open] .app--mobile .dash-capture-dock {
   line-height: 1.45;
 }
 
+.debt-popup-actions {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.pay-snap-popup {
+  z-index: 79;
+}
+
+.risk-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  margin-top: 0.65rem;
+  cursor: pointer;
+}
+
+.risk-strip--compact {
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.risk-strip-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+}
+
+.risk-chip {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+
+.risk-chip--high {
+  color: #b42318;
+  border-color: rgba(180, 35, 24, 0.45);
+}
+
+.risk-chip--low {
+  color: #2f6b45;
+  border-color: rgba(47, 107, 69, 0.35);
+}
+
+.risk-chip--none {
+  color: var(--muted, #667);
+}
+
+.surplus-history {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding: 0.35rem 0 0.15rem;
+  align-items: flex-end;
+}
+
+.surplus-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 4.2rem;
+}
+
+.surplus-col--btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0.15rem 0.1rem;
+}
+
+.surplus-col--now {
+  opacity: 0.92;
+  border-left: 1px dashed var(--border, #ccc);
+  padding-left: 0.45rem;
+  margin-left: 0.15rem;
+}
+
+.surplus-bar--now {
+  outline: 1px dashed currentColor;
+  outline-offset: 1px;
+}
+
+.surplus-bar-track {
+  height: 76px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.surplus-bar {
+  width: 18px;
+  border-radius: 4px 4px 0 0;
+}
+
+.surplus-bar--pos {
+  background: #2f6b45;
+}
+
+.surplus-bar--neg {
+  background: #b42318;
+}
+
+.surplus-val {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.surplus-label {
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.habit-heat {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 3px;
+  margin: 0.5rem 0 0.85rem;
+}
+
+.habit-heat-cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.habit-heat-cell--on {
+  background: #2f6b45;
+}
+
+.dash-habit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.dash-habit-check {
+  flex-shrink: 0;
+}
+
+.pending-banner {
+  margin-top: 0.45rem;
+  font-size: 0.88rem;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pay-snap-field {
+  margin: 0.15rem 0 0;
+}
+
+.pay-snap-field input {
+  width: 100%;
+}
+
+.workbench-toggle {
+  margin-bottom: 0.75rem;
+}
+
+.upcoming-risk {
+  font-size: 0.75rem;
+  margin-right: 0.35rem;
+}
+
 .update-popup__actions {
   display: flex;
   gap: 0.65rem;

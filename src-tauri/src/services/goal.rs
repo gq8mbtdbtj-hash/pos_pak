@@ -547,6 +547,8 @@ impl<'a> GoalService<'a> {
                 goal.gap = None;
                 goal.streak = None;
                 goal.formed = None;
+                goal.checked_today = None;
+                goal.streak_at_risk = None;
                 Ok(())
             }
             GoalKind::Habit => {
@@ -560,6 +562,16 @@ impl<'a> GoalService<'a> {
                     .round() as i32;
                 goal.progress = progress;
                 goal.formed = Some(streak >= CHECKIN_FORM_DAYS);
+                let today = chrono::Local::now().date_naive();
+                let yesterday = today - Duration::days(1);
+                let checked_today = self.has_checkin(&goal.id, today)?;
+                goal.checked_today = Some(checked_today);
+                goal.streak_at_risk = Some(
+                    !checked_today
+                        && !self.has_checkin(&goal.id, yesterday)?
+                        && streak > 0
+                        && !goal.formed.unwrap_or(false),
+                );
                 if goal.start_value.is_none() {
                     goal.start_value = Some(0.0);
                 }
@@ -577,6 +589,7 @@ impl<'a> GoalService<'a> {
                         goal.streak = None;
                         goal.formed = Some(false);
                         goal.progress = 0;
+                        self.set_checked_today(goal)?;
                         return Ok(());
                     }
                 };
@@ -592,6 +605,7 @@ impl<'a> GoalService<'a> {
                         goal.streak = None;
                         goal.formed = Some(false);
                         goal.progress = 0;
+                        self.set_checked_today(goal)?;
                         return Ok(());
                     }
                 };
@@ -611,9 +625,16 @@ impl<'a> GoalService<'a> {
                 goal.progress = value_progress(start, target, current);
                 goal.streak = None;
                 goal.formed = Some(goal.progress >= 100);
+                self.set_checked_today(goal)?;
                 Ok(())
             }
         }
+    }
+
+    fn set_checked_today(&self, goal: &mut Goal) -> AppResult<()> {
+        let today = chrono::Local::now().date_naive();
+        goal.checked_today = Some(self.has_checkin(&goal.id, today)?);
+        Ok(())
     }
 
     fn latest_checkin_value(&self, goal_id: &str) -> AppResult<Option<f64>> {
@@ -834,6 +855,8 @@ fn map_goal_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal> {
         gap: None,
         streak: None,
         formed: None,
+        checked_today: None,
+        streak_at_risk: None,
     })
 }
 

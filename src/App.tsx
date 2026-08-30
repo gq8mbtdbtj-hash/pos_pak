@@ -3,6 +3,7 @@ import "./App.css";
 import TitleBar from "./components/TitleBar";
 import UnlockGate from "./components/UnlockGate";
 import DebtReminderPopups from "./components/DebtReminderPopups";
+import PayPeriodConfirmPopup from "./components/PayPeriodConfirmPopup";
 import SyncFabs from "./components/SyncFabs";
 import UpdatePopup from "./components/UpdatePopup";
 import { ToastHost } from "./components/Toast";
@@ -177,6 +178,7 @@ function App() {
             </nav>
           )}
           <DebtReminderPopups enabled={unlocked} />
+          <PayPeriodConfirmPopup enabled={unlocked} />
           {updateInfo ? (
             <UpdatePopup
               info={updateInfo}
