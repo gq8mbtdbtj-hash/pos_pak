@@ -66,7 +66,7 @@ export default function UnlockGate({ onUnlocked }: Props) {
     try {
       if (mode === "init" || mode === "create") {
         if (password.length < 8) {
-          toastErr("主密码至少 8 位");
+          toastErr("登录码至少 8 位");
           return;
         }
         if (password !== confirm) {
@@ -126,12 +126,12 @@ export default function UnlockGate({ onUnlocked }: Props) {
 
   const title =
     mode === "init"
-      ? "设置主密码以加密本地数据与同步凭证"
+      ? "设置登录码以加密本地数据与同步凭证"
       : mode === "create"
-        ? "创建新的独立数据空间（新密码对应独立数据与远端配置）"
+        ? "创建新的独立数据空间（新登录码对应独立数据与远端配置）"
         : mode === "loading"
           ? "正在检查本地会话…"
-          : "输入主密码解锁对应数据空间";
+          : "输入登录码解锁对应数据空间";
 
   return (
     <div className="unlock-screen">
@@ -145,7 +145,7 @@ export default function UnlockGate({ onUnlocked }: Props) {
           <input
             className="unlock-input"
             type="password"
-            placeholder="主密码"
+            placeholder="登录码"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !busy && submit()}
@@ -157,7 +157,7 @@ export default function UnlockGate({ onUnlocked }: Props) {
             <input
               className="unlock-input"
               type="password"
-              placeholder="确认主密码"
+              placeholder="确认登录码"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !busy && submit()}

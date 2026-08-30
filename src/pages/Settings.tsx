@@ -18,6 +18,7 @@ type Props = {
 };
 
 type Feedback = { kind: ToastKind; text: string };
+type Panel = "home" | "login" | "remote" | "configSync" | "backup";
 
 const emptyForm = (): SyncConfigView => ({
   id: undefined,
@@ -56,6 +57,7 @@ function providerLabel(provider: string): string {
 
 export default function SettingsPage({ onLocked }: Props) {
   const mobile = isMobile();
+  const [panel, setPanel] = useState<Panel>("home");
   const [outputPath, setOutputPath] = useState("");
   const [importPath, setImportPath] = useState("");
   const [gitBundlePath, setGitBundlePath] = useState("");
@@ -103,6 +105,12 @@ export default function SettingsPage({ onLocked }: Props) {
   }, [mobile, gitBundlePath]);
 
   useEffect(() => {
+    if (!mobile && !outputPath) {
+      setOutputPath("C:\\Users\\ikjm\\Desktop\\personal-os-backup.zip");
+    }
+  }, [mobile, outputPath]);
+
+  useEffect(() => {
     refresh().catch((e) => showToast("err", errText(e)));
   }, []);
 
@@ -110,11 +118,14 @@ export default function SettingsPage({ onLocked }: Props) {
     showToast(kind, text);
   };
 
+  const goHome = () => setPanel("home");
+
   const startNew = () => {
     setEditingId(null);
     setConfig(emptyForm());
     setPat("");
     setConnFeedback(null);
+    setPanel("remote");
   };
 
   const startEdit = (remote: SyncRemoteView) => {
@@ -130,6 +141,7 @@ export default function SettingsPage({ onLocked }: Props) {
     });
     setPat("");
     setConnFeedback(null);
+    setPanel("remote");
   };
 
   const exportData = async () => {
@@ -171,19 +183,20 @@ export default function SettingsPage({ onLocked }: Props) {
     if (result.sync?.conflict) {
       setConflict(result.sync);
       flash("info", "配置已导入，同步存在冲突，请选择提交");
+      setPanel("home");
     } else if (result.syncNote) {
       flash("info", result.syncNote);
     } else if (result.sync) {
       flash(
         "ok",
-        `Git 配置已导入并同步（${result.sync.status}${
+        `配置已导入并同步（${result.sync.status}${
           result.sync.contentHash
             ? ` · ${result.sync.contentHash.slice(0, 12)}`
             : ""
         }）`,
       );
     } else {
-      flash("ok", "Git 配置已导入");
+      flash("ok", "配置已导入");
     }
     setGitTransferPw("");
   };
@@ -199,7 +212,7 @@ export default function SettingsPage({ onLocked }: Props) {
       setGitBundleText(text);
       try {
         await navigator.clipboard.writeText(text);
-        flash("ok", "已复制加密配置到剪贴板，可粘贴到手机");
+        flash("ok", "已复制加密配置到剪贴板");
       } catch {
         flash("ok", "已生成配置文本，请手动全选复制下方内容");
       }
@@ -222,7 +235,7 @@ export default function SettingsPage({ onLocked }: Props) {
     setBusy(true);
     try {
       await api.exportGitConfig(gitBundlePath.trim(), gitTransferPw);
-      flash("ok", `已导出到 ${gitBundlePath.trim()}，可用微信等发到手机后按文档导入`);
+      flash("ok", `已导出到 ${gitBundlePath.trim()}`);
     } catch (e) {
       flash("err", errText(e));
     } finally {
@@ -238,14 +251,10 @@ export default function SettingsPage({ onLocked }: Props) {
     const text = gitBundleText.trim();
     const path = gitBundlePath.trim();
     if (!text && !path) {
-      flash("err", mobile ? "请粘贴电脑导出的配置文本" : "请粘贴配置文本或填写文件路径");
+      flash("err", "请粘贴配置文本" + (mobile ? "" : "或填写文件路径"));
       return;
     }
-    if (
-      !window.confirm(
-        "导入将覆盖当前档案的 Git 远程配置（含 PAT）。是否继续？",
-      )
-    ) {
+    if (!window.confirm("导入将覆盖当前档案的 Git 远程配置（含 PAT）。是否继续？")) {
       return;
     }
     setBusy(true);
@@ -280,12 +289,34 @@ export default function SettingsPage({ onLocked }: Props) {
       await refresh();
       if (editingId) {
         const updated = view.remotes.find((r) => r.id === editingId);
-        if (updated) startEdit(updated);
+        if (updated) {
+          setEditingId(updated.id);
+          setConfig({
+            id: updated.id,
+            label: updated.label,
+            provider: updated.provider,
+            repoUrl: updated.repoUrl,
+            username: updated.username,
+            branch: updated.branch,
+            hasPat: updated.hasPat,
+          });
+        }
       } else {
         const created = view.remotes[view.remotes.length - 1];
-        if (created) startEdit(created);
+        if (created) {
+          setEditingId(created.id);
+          setConfig({
+            id: created.id,
+            label: created.label,
+            provider: created.provider,
+            repoUrl: created.repoUrl,
+            username: created.username,
+            branch: created.branch,
+            hasPat: created.hasPat,
+          });
+        }
       }
-      flash("ok", "远端配置已保存（PAT 已加密存入保险库）");
+      flash("ok", "远端配置已保存");
     } catch (e) {
       flash("err", errText(e));
     } finally {
@@ -301,7 +332,11 @@ export default function SettingsPage({ onLocked }: Props) {
     try {
       const view = await api.syncDeleteRemote(id);
       applyRemotes(view);
-      if (editingId === id) startNew();
+      if (editingId === id) {
+        setEditingId(null);
+        setConfig(emptyForm());
+        setPanel("home");
+      }
       await refresh();
       flash("ok", "已删除远端");
     } catch (e) {
@@ -317,7 +352,7 @@ export default function SettingsPage({ onLocked }: Props) {
       const view = await api.syncSetDefaultRemote(id);
       applyRemotes(view);
       await refresh();
-      flash("ok", "已设为默认访问远端");
+      flash("ok", "已设为默认");
     } catch (e) {
       flash("err", errText(e));
     } finally {
@@ -416,7 +451,7 @@ export default function SettingsPage({ onLocked }: Props) {
       await api.vaultChangePassword(oldPw, newPw);
       setOldPw("");
       setNewPw("");
-      flash("ok", "主密码已更新");
+      flash("ok", "登录码已更新");
       await refresh();
     } catch (e) {
       flash("err", errText(e));
@@ -428,8 +463,6 @@ export default function SettingsPage({ onLocked }: Props) {
   const logout = async () => {
     setBusy(true);
     try {
-      // Do not push on logout — upload can hang and feels like a freeze.
-      // Use「推送到远端」explicitly when needed.
       await api.vaultLogout();
       onLocked?.();
     } catch (e) {
@@ -443,321 +476,407 @@ export default function SettingsPage({ onLocked }: Props) {
   const multi = remotes.length > 1;
   const syncBlocked = remotesView.needsDefaultRemote;
 
+  const panelTitle =
+    panel === "login"
+      ? "登录码"
+      : panel === "remote"
+        ? editingId
+          ? "编辑配置"
+          : "配置新建"
+        : panel === "configSync"
+          ? "配置同步"
+          : panel === "backup"
+            ? "备份"
+            : "设置";
+
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h2 className="page-title">设置</h2>
+    <div className="page page-settings">
+      <header className="page-header page-header--settings">
+        <div className="settings-header-row">
+          {panel !== "home" ? (
+            <button type="button" className="settings-back" onClick={goHome}>
+              ‹ 设置
+            </button>
+          ) : (
+            <span className="settings-back settings-back--spacer" aria-hidden />
+          )}
+          <div className="settings-header-titles">
+            <p className="eyebrow">Settings</p>
+            <h2 className="page-title">{panelTitle}</h2>
+          </div>
         </div>
       </header>
 
-      <div className="card">
-        <h3 style={{ marginBottom: "0.5rem" }}>主密码</h3>
-        <p className="muted" style={{ marginBottom: "0.75rem" }}>
-          本地数据库与同步令牌均由主密码保护。不同主密码对应独立数据与远端配置。
-          登录后会在本机应用数据目录保存脱敏会话，下次启动无需再输密码；登出后才会要求重新输入。
-          关闭窗口与登出不会自动推送远端，需在下方手动「立即推送」。
-        </p>
-        {status?.passwordMask && (
-          <p className="muted" style={{ marginBottom: "0.75rem" }}>
-            当前会话密码形如 {status.passwordMask}
-            {status.profileId ? ` · 空间 ${status.profileId.slice(0, 8)}` : ""}
-          </p>
-        )}
-        <div className="form-col">
-          <input
-            type="password"
-            placeholder="当前主密码"
-            value={oldPw}
-            onChange={(e) => setOldPw(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="新主密码（至少 8 位）"
-            value={newPw}
-            onChange={(e) => setNewPw(e.target.value)}
-          />
-          <div className="form-row">
-            <button className="btn" disabled={busy} onClick={changePassword}>
-              修改主密码
-            </button>
-            <button className="btn btn-ghost danger" disabled={busy} onClick={logout}>
-              登出
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="card" style={{ marginTop: "1rem" }}>
-        <h3 style={{ marginBottom: "0.5rem" }}>加密 Git 同步</h3>
-        <p className="muted" style={{ marginBottom: "0.75rem" }}>
-          通过 GitHub / Gitee 私有仓以 HTTPS+PAT 推拉 AES 加密快照（桌面与 Android
-          同一路径，无需系统 git）。AtomGit 暂未接入。可配置多个远端；多个时需选择默认远端。
-          PAT 需具备仓库读写权限（GitHub：`repo`；Gitee：私有仓读写）。
-          Gitee 空仓默认分支常为 master，请把下方「分支」改成与网页一致，否则仓库首页可能看起来是空的。
-        </p>
-
-        {remotes.length > 0 && (
-          <div className="remote-list">
-            {multi && syncBlocked && (
-              <p className="settings-banner settings-banner--info" role="status">
-                已配置多个远端，请选择默认访问远端后再拉取 / 推送。
-              </p>
-            )}
-            {remotes.map((r) => (
-              <div
-                key={r.id}
-                className={`remote-item${r.isDefault ? " remote-item--default" : ""}${
-                  editingId === r.id ? " remote-item--editing" : ""
-                }`}
-              >
-                <div className="remote-item__main">
-                  <div className="remote-item__title">
-                    <span className="remote-item__name">{r.displayLabel}</span>
-                    {r.isDefault && <span className="remote-badge">默认</span>}
-                    {!r.hasPat && <span className="remote-badge remote-badge--warn">无 PAT</span>}
-                  </div>
-                  <p className="remote-item__meta muted">
-                    {providerLabel(r.provider)} · {r.branch || "main"}
-                  </p>
-                  <p className="remote-item__url muted" title={r.repoUrl}>
-                    {r.repoUrl || "（未填写仓库 URL）"}
-                  </p>
-                  {r.username && (
-                    <p className="remote-item__meta muted">用户 {r.username}</p>
+      {panel === "home" && (
+        <>
+          <section className="settings-group">
+            <p className="settings-group__label">Git 配置</p>
+            <div className="settings-group__card">
+              {remotes.length === 0 ? (
+                <p className="settings-empty muted">尚未添加远端，请到「配置新建」添加。</p>
+              ) : (
+                <>
+                  {multi && syncBlocked && (
+                    <p className="settings-banner settings-banner--info" role="status">
+                      多个远端时请选择一个作为默认后再拉取 / 推送。
+                    </p>
                   )}
-                </div>
-                <div className="remote-item__actions">
-                  {multi && !r.isDefault && (
+                  <ul className="settings-remote-list" role="listbox" aria-label="Git 远端">
+                    {remotes.map((r) => (
+                      <li key={r.id} className="settings-remote-row">
+                        <label className="settings-remote-pick">
+                          <input
+                            type="radio"
+                            name="default-remote"
+                            checked={r.isDefault}
+                            disabled={busy || (!multi && r.isDefault)}
+                            onChange={() => {
+                              if (!r.isDefault) void setDefault(r.id);
+                            }}
+                          />
+                          <span className="settings-remote-pick__body">
+                            <span className="settings-remote-pick__title">
+                              {r.displayLabel}
+                              {r.isDefault && <span className="remote-badge">默认</span>}
+                              {!r.hasPat && (
+                                <span className="remote-badge remote-badge--warn">无 PAT</span>
+                              )}
+                            </span>
+                            <span className="muted settings-remote-pick__meta">
+                              {providerLabel(r.provider)} · {r.branch || "main"}
+                            </span>
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          className="settings-remote-edit"
+                          disabled={busy}
+                          onClick={() => startEdit(r)}
+                        >
+                          编辑
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="settings-inline-actions">
                     <button
                       className="btn btn-ghost"
-                      disabled={busy}
-                      onClick={() => setDefault(r.id)}
+                      disabled={busy || syncBlocked || remotes.length === 0}
+                      onClick={handlePull}
                     >
-                      设为默认
+                      立即拉取
                     </button>
+                    <button
+                      className="btn"
+                      disabled={busy || syncBlocked || remotes.length === 0}
+                      onClick={handlePush}
+                    >
+                      立即推送
+                    </button>
+                  </div>
+                  {status && (
+                    <p className="muted settings-sync-meta">
+                      上次同步：{status.lastSyncAt ?? "—"}
+                      {status.lastRevision ? ` · ${status.lastRevision.slice(0, 8)}` : ""}
+                    </p>
                   )}
-                  <button
-                    className="btn btn-ghost"
-                    disabled={busy}
-                    onClick={() => startEdit(r)}
-                  >
-                    查看 / 编辑
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="settings-group">
+            <p className="settings-group__label">功能</p>
+            <div className="settings-group__card settings-menu">
+              <button type="button" className="settings-menu__item" onClick={() => setPanel("login")}>
+                <span className="settings-menu__text">
+                  <strong>登录码</strong>
+                  <span className="muted">修改解锁码或登出本机会话</span>
+                </span>
+                <span className="settings-menu__chevron" aria-hidden>
+                  ›
+                </span>
+              </button>
+              <button type="button" className="settings-menu__item" onClick={startNew}>
+                <span className="settings-menu__text">
+                  <strong>配置新建</strong>
+                  <span className="muted">添加 GitHub / Gitee 加密同步远端</span>
+                </span>
+                <span className="settings-menu__chevron" aria-hidden>
+                  ›
+                </span>
+              </button>
+              <button
+                type="button"
+                className="settings-menu__item"
+                onClick={() => setPanel("configSync")}
+              >
+                <span className="settings-menu__text">
+                  <strong>配置同步</strong>
+                  <span className="muted">跨设备导出 / 导入 Git 配置</span>
+                </span>
+                <span className="settings-menu__chevron" aria-hidden>
+                  ›
+                </span>
+              </button>
+              <button type="button" className="settings-menu__item" onClick={() => setPanel("backup")}>
+                <span className="settings-menu__text">
+                  <strong>备份</strong>
+                  <span className="muted">本地数据包导出与导入</span>
+                </span>
+                <span className="settings-menu__chevron" aria-hidden>
+                  ›
+                </span>
+              </button>
+            </div>
+          </section>
+        </>
+      )}
+
+      {panel === "login" && (
+        <section className="settings-group">
+          <div className="settings-group__card settings-detail">
+            <p className="muted settings-detail__hint">
+              本地数据库与同步令牌由登录码保护。不同登录码对应独立数据空间。
+              解锁后会在本机保存脱敏会话，下次启动可免密；登出后需重新输入。
+              关闭窗口或登出不会自动推送远端。
+            </p>
+            {status?.passwordMask && (
+              <p className="muted">
+                当前会话形如 {status.passwordMask}
+                {status.profileId ? ` · 空间 ${status.profileId.slice(0, 8)}` : ""}
+              </p>
+            )}
+            <div className="form-col">
+              <input
+                type="password"
+                placeholder="当前登录码"
+                value={oldPw}
+                onChange={(e) => setOldPw(e.target.value)}
+              />
+              <input
+                type="password"
+                placeholder="新登录码（至少 8 位）"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+              />
+              <div className="form-row">
+                <button className="btn" disabled={busy} onClick={changePassword}>
+                  修改登录码
+                </button>
+                <button className="btn btn-ghost danger" disabled={busy} onClick={logout}>
+                  登出
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {panel === "remote" && (
+        <section className="settings-group">
+          <div className="settings-group__card settings-detail">
+            <p className="muted settings-detail__hint">
+              通过 GitHub / Gitee 私有仓以 HTTPS+PAT 推拉加密快照（桌面与手机同一路径）。
+              AtomGit 暂未接入。Gitee 空仓默认分支常为 master，请与网页分支名保持一致。
+            </p>
+            <div className="form-col">
+              {editingId && (
+                <div className="form-row" style={{ justifyContent: "flex-end" }}>
+                  <button className="btn btn-ghost" type="button" disabled={busy} onClick={startNew}>
+                    改为新建
                   </button>
+                </div>
+              )}
+              <input
+                placeholder="备注名称（可选）"
+                value={config.label}
+                onChange={(e) => setConfig({ ...config, label: e.target.value })}
+              />
+              <label className="muted">平台</label>
+              <Select
+                ariaLabel="平台"
+                value={config.provider}
+                options={[
+                  { value: "github", label: "GitHub" },
+                  { value: "gitee", label: "Gitee" },
+                  { value: "atomgit", label: "AtomGit" },
+                ]}
+                onChange={(provider) => setConfig({ ...config, provider })}
+              />
+              <input
+                placeholder="仓库 HTTPS URL"
+                value={config.repoUrl}
+                onChange={(e) => setConfig({ ...config, repoUrl: e.target.value })}
+              />
+              <input
+                placeholder="用户名"
+                value={config.username}
+                onChange={(e) => setConfig({ ...config, username: e.target.value })}
+              />
+              <input
+                placeholder="分支（默认 main）"
+                value={config.branch}
+                onChange={(e) => setConfig({ ...config, branch: e.target.value })}
+              />
+              <input
+                type="password"
+                placeholder={config.hasPat ? "PAT（留空则保留已保存令牌）" : "Personal Access Token"}
+                value={pat}
+                onChange={(e) => setPat(e.target.value)}
+              />
+              <div className="form-row" style={{ flexWrap: "wrap" }}>
+                <button className="btn" disabled={busy || testing} onClick={saveSync}>
+                  {editingId ? "保存修改" : "添加并保存"}
+                </button>
+                <button className="btn btn-ghost" disabled={busy || testing} onClick={testConn}>
+                  {testing ? "测试中…" : "测试连接"}
+                </button>
+                {editingId && (
                   <button
-                    className="btn btn-ghost"
+                    className="btn btn-ghost danger"
                     disabled={busy}
-                    onClick={() => deleteRemote(r.id)}
+                    onClick={() => deleteRemote(editingId)}
                   >
                     删除
                   </button>
-                </div>
+                )}
               </div>
-            ))}
+              {connFeedback && (
+                <p
+                  className={`sync-feedback sync-feedback--${connFeedback.kind}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {connFeedback.text}
+                </p>
+              )}
+            </div>
           </div>
-        )}
+        </section>
+      )}
 
-        {remotes.length === 0 && (
-          <p className="muted" style={{ marginBottom: "0.75rem" }}>
-            尚未配置 Git 远端，请在下方添加。
-          </p>
-        )}
-
-        <div className="form-col">
-          <div className="form-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <label className="muted" style={{ margin: 0 }}>
-              {editingId ? "编辑远端" : "添加远端"}
-            </label>
-            {editingId && (
-              <button className="btn btn-ghost" type="button" disabled={busy} onClick={startNew}>
-                改为新增
-              </button>
-            )}
-          </div>
-          <input
-            placeholder="备注名称（可选）"
-            value={config.label}
-            onChange={(e) => setConfig({ ...config, label: e.target.value })}
-          />
-          <label className="muted">平台</label>
-          <Select
-            ariaLabel="平台"
-            value={config.provider}
-            options={[
-              { value: "github", label: "GitHub" },
-              { value: "gitee", label: "Gitee" },
-              { value: "atomgit", label: "AtomGit" },
-            ]}
-            onChange={(provider) => setConfig({ ...config, provider })}
-          />
-          <input
-            placeholder="仓库 HTTPS URL"
-            value={config.repoUrl}
-            onChange={(e) => setConfig({ ...config, repoUrl: e.target.value })}
-          />
-          <input
-            placeholder="用户名"
-            value={config.username}
-            onChange={(e) => setConfig({ ...config, username: e.target.value })}
-          />
-          <input
-            placeholder="分支（默认 main）"
-            value={config.branch}
-            onChange={(e) => setConfig({ ...config, branch: e.target.value })}
-          />
-          <input
-            type="password"
-            placeholder={config.hasPat ? "PAT（留空则保留已保存令牌）" : "Personal Access Token"}
-            value={pat}
-            onChange={(e) => setPat(e.target.value)}
-          />
-          <div className="form-row" style={{ flexWrap: "wrap" }}>
-            <button className="btn" disabled={busy || testing} onClick={saveSync}>
-              {editingId ? "保存修改" : "添加并保存"}
-            </button>
-            <button className="btn btn-ghost" disabled={busy || testing} onClick={testConn}>
-              {testing ? "测试中…" : "测试连接"}
-            </button>
-            <button
-              className="btn btn-ghost"
-              disabled={busy || testing || syncBlocked || remotes.length === 0}
-              onClick={handlePull}
-            >
-              立即拉取
-            </button>
-            <button
-              className="btn"
-              disabled={busy || testing || syncBlocked || remotes.length === 0}
-              onClick={handlePush}
-            >
-              立即推送
-            </button>
-          </div>
-          {connFeedback && (
-            <p
-              className={`sync-feedback sync-feedback--${connFeedback.kind}`}
-              role="status"
-              aria-live="polite"
-            >
-              {connFeedback.text}
+      {panel === "configSync" && (
+        <section className="settings-group">
+          <div className="settings-group__card settings-detail">
+            <p className="muted settings-detail__hint">
+              {mobile
+                ? "在另一台设备「配置同步」里复制或导出加密配置，粘贴到下方并填同一传输密码后导入。登录码不会被导出。"
+                : "建议先在设置首页「立即推送」数据，再设传输密码并复制/导出配置，到手机或其它电脑导入。登录码不会被导出。"}
             </p>
-          )}
-        </div>
-        {status && (
-          <p className="muted" style={{ marginTop: "0.75rem" }}>
-            上次同步：{status.lastSyncAt ?? "—"}
-            {status.lastRevision ? ` · ${status.lastRevision.slice(0, 8)}` : ""}
-            {status.lastContentHash ? ` · hash ${status.lastContentHash.slice(0, 12)}` : ""}
-            {status.defaultRemoteId && remotes.length > 0
-              ? ` · 默认 ${
-                  remotes.find((r) => r.id === status.defaultRemoteId)?.displayLabel ?? "—"
-                }`
-              : ""}
-          </p>
-        )}
-      </div>
-
-      <div className="card" style={{ marginTop: "1rem" }}>
-        <h3 style={{ marginBottom: "0.5rem" }}>跨设备 Git 配置</h3>
-        <p className="muted" style={{ marginBottom: "0.75rem" }}>
-          {mobile
-            ? "在电脑设置里「复制加密配置」或导出 .posgit，发到手机粘贴后填同一传输密码导入。步骤见 docs/git-config-transfer.md。"
-            : "先「立即推送」数据，再设传输密码 →「复制加密配置」或「导出到文件」。完整步骤：docs/git-config-transfer.md。"}
-        </p>
-        <div className="form-col">
-          <input
-            type="password"
-            placeholder="传输密码"
-            value={gitTransferPw}
-            onChange={(e) => setGitTransferPw(e.target.value)}
-            autoComplete="new-password"
-          />
-          <textarea
-            className="unlock-input"
-            rows={mobile ? 5 : 3}
-            placeholder={
-              mobile
-                ? "粘贴电脑导出的加密配置 JSON…"
-                : "导出后会出现在此；也可粘贴他人发来的配置再导入"
-            }
-            value={gitBundleText}
-            onChange={(e) => setGitBundleText(e.target.value)}
-            data-no-tab-swipe
-          />
-          {!mobile && (
-            <input
-              placeholder="可选：文件路径，例如 C:\\Users\\you\\git-sync.posgit"
-              value={gitBundlePath}
-              onChange={(e) => setGitBundlePath(e.target.value)}
-            />
-          )}
-          <div className="form-row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
-            {!mobile && (
-              <>
+            <div className="form-col">
+              <input
+                type="password"
+                placeholder="传输密码"
+                value={gitTransferPw}
+                onChange={(e) => setGitTransferPw(e.target.value)}
+                autoComplete="new-password"
+              />
+              <textarea
+                className="unlock-input"
+                rows={mobile ? 5 : 4}
+                placeholder={
+                  mobile
+                    ? "粘贴其它设备导出的加密配置…"
+                    : "导出后会出现在此；也可粘贴后再导入"
+                }
+                value={gitBundleText}
+                onChange={(e) => setGitBundleText(e.target.value)}
+                data-no-tab-swipe
+              />
+              {!mobile && (
+                <input
+                  placeholder="可选：文件路径，例如 C:\\Users\\you\\git-sync.posgit"
+                  value={gitBundlePath}
+                  onChange={(e) => setGitBundlePath(e.target.value)}
+                />
+              )}
+              <div className="form-row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
                 <button className="btn" disabled={busy} onClick={copyGitConfig}>
                   复制加密配置
                 </button>
-                <button className="btn btn-ghost" disabled={busy} onClick={exportGitConfig}>
-                  导出到文件
+                {!mobile && (
+                  <button className="btn btn-ghost" disabled={busy} onClick={exportGitConfig}>
+                    导出到文件
+                  </button>
+                )}
+                <button className="btn" disabled={busy} onClick={importGitConfig}>
+                  导入配置
                 </button>
-              </>
-            )}
-            <button className="btn" disabled={busy} onClick={importGitConfig}>
-              {mobile ? "导入配置" : "导入"}
-            </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-
-      {conflict?.conflict && (
-        <div className="card" style={{ marginTop: "1rem" }}>
-          <h3>选择提交以解决冲突</h3>
-          <p className="muted">{conflict.conflict.message}</p>
-          <ul className="commit-list">
-            {conflict.conflict.commits.map((c) => (
-              <li key={c.id}>
-                <button className="btn commit-pick" disabled={busy} onClick={() => resolveCommit(c)}>
-                  <strong>{c.shortId}</strong>
-                  <span>{c.summary}</span>
-                  <span className="muted">
-                    {c.author} · {c.time}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        </section>
       )}
 
-      <div className="card" style={{ marginTop: "1rem" }}>
-        <h3 style={{ marginBottom: "0.5rem" }}>数据备份</h3>
-        <p className="muted" style={{ marginBottom: "0.75rem" }}>
-          本地导出 / 导入 SQLite 数据库与 Markdown 知识库（ZIP）。导入会覆盖当前档案数据，请先自行备份。
-        </p>
-        <div className="form-row" style={{ marginBottom: "0.5rem" }}>
-          <input
-            placeholder="导出路径，例如 C:\Users\you\backup.zip"
-            value={outputPath}
-            onChange={(e) => setOutputPath(e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button className="btn" onClick={exportData}>
-            导出
-          </button>
-        </div>
-        <div className="form-row">
-          <input
-            placeholder="导入路径，例如 C:\Users\you\backup.zip"
-            value={importPath}
-            onChange={(e) => setImportPath(e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button className="btn btn-ghost" onClick={importData}>
-            导入
-          </button>
-        </div>
-      </div>
+      {panel === "backup" && (
+        <section className="settings-group">
+          <div className="settings-group__card settings-detail">
+            <p className="muted settings-detail__hint">
+              {mobile
+                ? "导出 / 导入本机 SQLite 与知识库（ZIP）。请填写应用可写的绝对路径；导入会覆盖当前档案，请先确认路径无误。"
+                : "导出 / 导入本机 SQLite 与知识库（ZIP）。路径需为可读写的本地文件；导入会覆盖当前档案，建议先导出一份再操作。"}
+            </p>
+            <div className="form-col">
+              <label className="muted">导出</label>
+              <div className="form-row">
+                <input
+                  placeholder={
+                    mobile
+                      ? "导出路径（设备可写绝对路径）"
+                      : "导出路径，例如 C:\\Users\\you\\backup.zip"
+                  }
+                  value={outputPath}
+                  onChange={(e) => setOutputPath(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button className="btn" onClick={exportData}>
+                  导出
+                </button>
+              </div>
+              <label className="muted">导入</label>
+              <div className="form-row">
+                <input
+                  placeholder={
+                    mobile
+                      ? "导入路径（ZIP 绝对路径）"
+                      : "导入路径，例如 C:\\Users\\you\\backup.zip"
+                  }
+                  value={importPath}
+                  onChange={(e) => setImportPath(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button className="btn btn-ghost" onClick={importData}>
+                  导入
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {conflict?.conflict && (
+        <section className="settings-group">
+          <p className="settings-group__label">冲突</p>
+          <div className="settings-group__card settings-detail">
+            <h3>选择提交以解决冲突</h3>
+            <p className="muted">{conflict.conflict.message}</p>
+            <ul className="commit-list">
+              {conflict.conflict.commits.map((c) => (
+                <li key={c.id}>
+                  <button className="btn commit-pick" disabled={busy} onClick={() => resolveCommit(c)}>
+                    <strong>{c.shortId}</strong>
+                    <span>{c.summary}</span>
+                    <span className="muted">
+                      {c.author} · {c.time}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
