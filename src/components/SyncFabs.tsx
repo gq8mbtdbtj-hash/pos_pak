@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { api, SyncPullResult, GitCommitInfo } from "../services/api";
 import { showToast } from "./Toast";
 
@@ -9,8 +10,11 @@ type Props = {
 };
 
 type Side = "left" | "right";
+type SyncKind = "pull" | "push";
 
 const SIDE_KEY = "personal-os-sync-fab-side";
+/** Keep busy UI on screen long enough to notice on mobile */
+const BUSY_MIN_MS = 520;
 
 function errText(e: unknown): string {
   if (typeof e === "string") return e;
@@ -28,6 +32,16 @@ function readSide(): Side {
     /* ignore */
   }
   return "right";
+}
+
+function BusyDots() {
+  return (
+    <span className="sync-fab__busy" aria-hidden>
+      <span className="sync-fab__dot" />
+      <span className="sync-fab__dot" />
+      <span className="sync-fab__dot" />
+    </span>
+  );
 }
 
 function IconPull() {
@@ -75,14 +89,25 @@ function IconPush() {
   );
 }
 
+async function paintFrame() {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
 /** Global pull / push FABs — drag sideways to pin left/right; opaque while working. */
 export default function SyncFabs({ enabled, dockLift = false }: Props) {
-  const [busy, setBusy] = useState<"pull" | "push" | null>(null);
-  const [armed, setArmed] = useState<"pull" | "push" | null>(null);
+  const [busy, setBusy] = useState<SyncKind | null>(null);
+  const [armed, setArmed] = useState<SyncKind | null>(null);
   const [side, setSide] = useState<Side>(() => readSide());
   const [conflict, setConflict] = useState<SyncPullResult | null>(null);
+  const busyRef = useRef<SyncKind | null>(null);
   const suppressClick = useRef(false);
   const dragCleanup = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   useEffect(() => {
     try {
@@ -105,11 +130,25 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
     if (el instanceof HTMLElement) el.blur();
   };
 
+  const beginBusy = (kind: SyncKind) => {
+    flushSync(() => {
+      setArmed(kind);
+      setBusy(kind);
+    });
+  };
+
+  const endBusy = async (startedAt: number) => {
+    const left = BUSY_MIN_MS - (performance.now() - startedAt);
+    if (left > 0) {
+      await new Promise((r) => window.setTimeout(r, left));
+    }
+    setBusy(null);
+    window.setTimeout(() => setArmed(null), 220);
+  };
+
   /**
-   * Side-drag without setPointerCapture on pointerdown.
-   * Capturing immediately steals click from the FAB buttons on desktop
-   * (WebView2); mobile touch often still synthesizes click, which hid the bug.
-   * Window listeners + capture only after the drag threshold keep both paths.
+   * Side-drag: do not capture on pointerdown (desktop click theft).
+   * Higher touch threshold so taps are not treated as drags.
    */
   const onClusterPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -118,12 +157,16 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
     const cluster = e.currentTarget;
     const pointerId = e.pointerId;
     const startX = e.clientX;
+    const startY = e.clientY;
+    const threshold = e.pointerType === "touch" ? 40 : 14;
     let moved = false;
     let captured = false;
 
     const onMove = (ev: globalThis.PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
-      if (Math.abs(ev.clientX - startX) <= 12) return;
+      const dx = Math.abs(ev.clientX - startX);
+      const dy = Math.abs(ev.clientY - startY);
+      if (dx <= threshold || dx < dy) return;
       moved = true;
       if (!captured) {
         captured = true;
@@ -142,7 +185,7 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
       suppressClick.current = true;
       window.setTimeout(() => {
         suppressClick.current = false;
-      }, 280);
+      }, 320);
       const mid = window.innerWidth / 2;
       const next: Side = ev.clientX < mid ? "left" : "right";
       setSide(next);
@@ -172,9 +215,10 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
   const pull = async (e: MouseEvent<HTMLButtonElement>) => {
     if (suppressClick.current) return;
     blur(e.currentTarget);
-    if (busy) return;
-    setArmed("pull");
-    setBusy("pull");
+    if (busyRef.current) return;
+    const startedAt = performance.now();
+    beginBusy("pull");
+    await paintFrame();
     try {
       const r = await api.syncPull();
       if (r.status === "conflict") {
@@ -189,17 +233,17 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
     } catch (err) {
       showToast("err", errText(err));
     } finally {
-      setBusy(null);
-      window.setTimeout(() => setArmed(null), 220);
+      await endBusy(startedAt);
     }
   };
 
   const push = async (e: MouseEvent<HTMLButtonElement>) => {
     if (suppressClick.current) return;
     blur(e.currentTarget);
-    if (busy) return;
-    setArmed("push");
-    setBusy("push");
+    if (busyRef.current) return;
+    const startedAt = performance.now();
+    beginBusy("push");
+    await paintFrame();
     try {
       const r = await api.syncPush();
       if (r.status === "conflict") {
@@ -220,14 +264,15 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
     } catch (err) {
       showToast("err", errText(err));
     } finally {
-      setBusy(null);
-      window.setTimeout(() => setArmed(null), 220);
+      await endBusy(startedAt);
     }
   };
 
   const resolve = async (commit: GitCommitInfo) => {
-    setBusy("pull");
-    setArmed("pull");
+    if (busyRef.current) return;
+    const startedAt = performance.now();
+    beginBusy("pull");
+    await paintFrame();
     try {
       await api.syncResolveCommit(commit.id);
       setConflict(null);
@@ -235,8 +280,7 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
     } catch (err) {
       showToast("err", errText(err));
     } finally {
-      setBusy(null);
-      window.setTimeout(() => setArmed(null), 220);
+      await endBusy(startedAt);
     }
   };
 
@@ -260,24 +304,28 @@ export default function SyncFabs({ enabled, dockLift = false }: Props) {
           className={`sync-fab${armed === "pull" || busy === "pull" ? " is-armed" : ""}${
             busy === "pull" ? " is-busy" : ""
           }`}
-          disabled={busy !== null}
+          disabled={busy === "push"}
+          aria-busy={busy === "pull"}
           aria-label="拉取远端"
           title="拉取"
           onClick={pull}
         >
-          {busy === "pull" ? <span className="sync-fab__busy">…</span> : <IconPull />}
+          <IconPull />
+          <BusyDots />
         </button>
         <button
           type="button"
           className={`sync-fab${armed === "push" || busy === "push" ? " is-armed" : ""}${
             busy === "push" ? " is-busy" : ""
           }`}
-          disabled={busy !== null}
+          disabled={busy === "pull"}
+          aria-busy={busy === "push"}
           aria-label="推送到远端"
           title="推送"
           onClick={push}
         >
-          {busy === "push" ? <span className="sync-fab__busy">…</span> : <IconPush />}
+          <IconPush />
+          <BusyDots />
         </button>
       </div>
 
