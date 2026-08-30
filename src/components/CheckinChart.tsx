@@ -4,37 +4,62 @@ type Props = {
   checkins: GoalCheckin[];
   /** Goal target value (e.g. 76). */
   targetValue: number;
-  /** Goal deadline YYYY-MM-DD; X-axis end. */
+  /** Goal deadline YYYY-MM-DD; X-axis end (end of that local day). */
   targetDate?: string;
   unit?: string;
 };
 
-type Pt = { date: string; value: number; day: number };
+type Pt = { key: string; value: number; hour: number };
 
-function parseDay(iso: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+/** Hours since epoch, truncated to local hour. */
+function parseHour(iso: string): number | null {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setMinutes(0, 0, 0);
+  return d.getTime() / 3600000;
+}
+
+function parseDayEndHour(isoDate: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate.trim());
   if (!m) return null;
-  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return Number.isFinite(t) ? t / 86400000 : null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 0, 0, 0);
+  return Number.isFinite(d.getTime()) ? d.getTime() / 3600000 : null;
 }
 
-function todayDay(): number {
-  const n = new Date();
-  return Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) / 86400000;
+function nowHour(): number {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  return d.getTime() / 3600000;
 }
 
-function formatDayLabel(day: number): string {
-  const d = new Date(day * 86400000);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
+function formatHourLabel(hour: number): string {
+  const d = new Date(hour * 3600000);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:00`;
+}
+
+function formatDayLabel(hour: number): string {
+  const d = new Date(hour * 3600000);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
   return `${mm}-${dd}`;
+}
+
+function dayKeyFromHour(hour: number): string | null {
+  const d = new Date(hour * 3600000);
+  if (!Number.isFinite(d.getTime())) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /**
  * 目标打卡折线：
- * - 起点 = 首次打卡实测值（不是创建时填的 0）
+ * - 起点 = 首次打卡实测值
  * - 目标 = 任务 targetValue
- * - X 轴 = 首次打卡日 → 截止日（无截止则取今天与末次打卡较晚者）
+ * - X 轴 = 首次打卡小时 → 截止日（无截止则取现在与末次打卡较晚者）
+ * - 同日可有多条记录，图表只取**当天最晚**一条
  */
 export default function CheckinChart({
   checkins,
@@ -44,15 +69,23 @@ export default function CheckinChart({
 }: Props) {
   const unitSuffix = unit?.trim() ? unit.trim() : "";
 
-  const points: Pt[] = [...checkins]
-    .map((c) => {
-      const day = parseDay(c.date);
-      const value = Number(c.value);
-      if (day == null || !Number.isFinite(value)) return null;
-      return { date: c.date, value, day };
-    })
-    .filter((p): p is Pt => p != null)
-    .sort((a, b) => a.day - b.day);
+  // Chart: one point per calendar day = that day's latest (latest hour) check-in.
+  const chronological: Pt[] = [];
+  const byDay = new Map<string, Pt>();
+  for (const c of checkins) {
+    const hour = parseHour(c.createdAt) ?? parseHour(`${c.date}T12:00:00`);
+    const value = Number(c.value);
+    if (hour == null || !Number.isFinite(value)) continue;
+    const pt = { key: c.id, value, hour };
+    chronological.push(pt);
+    const dayKey = dayKeyFromHour(hour) ?? c.date.slice(0, 10);
+    const prev = byDay.get(dayKey);
+    if (!prev || hour >= prev.hour) {
+      byDay.set(dayKey, pt);
+    }
+  }
+  chronological.sort((a, b) => a.hour - b.hour);
+  const points: Pt[] = [...byDay.values()].sort((a, b) => a.hour - b.hour);
 
   if (!Number.isFinite(targetValue)) {
     return (
@@ -62,7 +95,7 @@ export default function CheckinChart({
     );
   }
 
-  if (points.length === 0) {
+  if (points.length === 0 || chronological.length === 0) {
     return (
       <div className="checkin-chart">
         <div className="checkin-chart__meta">
@@ -73,23 +106,23 @@ export default function CheckinChart({
         </div>
         <p className="muted hint">
           尚无打卡。首次实测将登记为起点（例如目标 {formatNum(targetValue)}
-          {unitSuffix}，首次 82.8 → 起点 82.8）。
+          {unitSuffix}，首次 82.8 → 起点 82.8）。同日可多次；图表按每天最晚一次登记。
         </p>
       </div>
     );
   }
 
-  const startValue = points[0].value;
+  // 起点 = 全局首次打卡；折线点 = 每天最晚一次；当前 = 折线末点
+  const startValue = chronological[0].value;
   const current = points[points.length - 1].value;
   const prev = points.length > 1 ? points[points.length - 2].value : null;
-  const x0 = points[0].day;
-  const deadlineDay = targetDate ? parseDay(targetDate) : null;
+  const x0 = chronological[0].hour;
+  const deadlineHour = targetDate ? parseDayEndHour(targetDate) : null;
   const x1 = Math.max(
-    points[points.length - 1].day,
-    deadlineDay ?? -Infinity,
-    todayDay(),
+    points[points.length - 1].hour,
+    deadlineHour ?? -Infinity,
+    nowHour(),
   );
-  // Ensure axis has span even if first day == end
   const xEnd = x1 > x0 ? x1 : x0 + 1;
 
   const { remaining, gapLabel, closerLabel } = gapAnalysis(
@@ -115,25 +148,27 @@ export default function CheckinChart({
   maxV += padAmt;
   const span = maxV - minV || 1;
 
-  const xAtDay = (day: number) =>
-    pad.l + ((day - x0) / (xEnd - x0)) * innerW;
+  const xAt = (hour: number) => pad.l + ((hour - x0) / (xEnd - x0)) * innerW;
   const yAt = (v: number) => pad.t + innerH - ((v - minV) / span) * innerH;
 
-  const yTicks = uniqueTicks([maxV, targetValue, startValue, minV, current]).filter(
-    (v) => v >= minV - 1e-9 && v <= maxV + 1e-9,
+  // Few Y labels only — never one tick per data point (overlaps / unreadable).
+  const yTicks = spacedYTicks(
+    [maxV, minV, targetValue, startValue, (minV + maxV) / 2],
+    yAt,
+    18,
   );
 
   const line = points
     .map(
       (p, i) =>
-        `${i === 0 ? "M" : "L"} ${xAtDay(p.day).toFixed(1)} ${yAt(p.value).toFixed(1)}`,
+        `${i === 0 ? "M" : "L"} ${xAt(p.hour).toFixed(1)} ${yAt(p.value).toFixed(1)}`,
     )
     .join(" ");
 
   const axisY0 = pad.t + innerH;
   const axisX0 = pad.l;
   const closerGood = closerLabel?.includes("更近");
-  const xLabels = buildXLabels(x0, xEnd, deadlineDay);
+  const xLabels = buildXLabels(x0, xEnd, deadlineHour);
 
   return (
     <div className="checkin-chart">
@@ -227,18 +262,18 @@ export default function CheckinChart({
         <path d={line} className="checkin-chart__line" fill="none" />
         {points.map((p) => (
           <circle
-            key={`${p.date}-${p.value}`}
-            cx={xAtDay(p.day)}
+            key={p.key}
+            cx={xAt(p.hour)}
             cy={yAt(p.value)}
             r={3.4}
             className="checkin-chart__dot"
           />
         ))}
 
-        {deadlineDay != null && deadlineDay >= x0 && deadlineDay <= xEnd ? (
+        {deadlineHour != null && deadlineHour >= x0 && deadlineHour <= xEnd ? (
           <line
-            x1={xAtDay(deadlineDay)}
-            x2={xAtDay(deadlineDay)}
+            x1={xAt(deadlineHour)}
+            x2={xAt(deadlineHour)}
             y1={pad.t}
             y2={axisY0}
             className="checkin-chart__deadline"
@@ -247,8 +282,8 @@ export default function CheckinChart({
 
         {xLabels.map((lab) => (
           <text
-            key={`x-${lab.day}-${lab.text}`}
-            x={xAtDay(lab.day)}
+            key={`x-${lab.hour}-${lab.text}`}
+            x={xAt(lab.hour)}
             y={h - 12}
             textAnchor="middle"
             className={
@@ -265,7 +300,7 @@ export default function CheckinChart({
         <span className="checkin-chart__legend-item checkin-chart__legend-item--line">实测</span>
         <span className="checkin-chart__legend-item checkin-chart__legend-item--target">目标</span>
         <span className="checkin-chart__legend-item checkin-chart__legend-item--start">起点</span>
-        {deadlineDay != null ? (
+        {deadlineHour != null ? (
           <span className="checkin-chart__legend-item checkin-chart__legend-item--deadline">
             截止
           </span>
@@ -278,28 +313,29 @@ export default function CheckinChart({
 function buildXLabels(
   x0: number,
   xEnd: number,
-  deadlineDay: number | null,
-): { day: number; text: string; emphasis?: boolean }[] {
+  deadlineHour: number | null,
+): { hour: number; text: string; emphasis?: boolean }[] {
   const span = xEnd - x0;
-  const out: { day: number; text: string; emphasis?: boolean }[] = [
-    { day: x0, text: formatDayLabel(x0) },
+  const useHourLabels = span <= 72; // ≤3 days → show hour
+  const label = (h: number) => (useHourLabels ? formatHourLabel(h) : formatDayLabel(h));
+  const out: { hour: number; text: string; emphasis?: boolean }[] = [
+    { hour: x0, text: label(x0) },
   ];
-  if (span > 14) {
-    out.push({ day: x0 + span / 2, text: formatDayLabel(x0 + span / 2) });
+  if (span > 24) {
+    out.push({ hour: x0 + span / 2, text: label(x0 + span / 2) });
   }
-  out.push({ day: xEnd, text: formatDayLabel(xEnd) });
-  if (deadlineDay != null && deadlineDay > x0 + 1 && deadlineDay < xEnd - 1) {
+  out.push({ hour: xEnd, text: label(xEnd) });
+  if (deadlineHour != null && deadlineHour > x0 + 1 && deadlineHour < xEnd - 1) {
     out.push({
-      day: deadlineDay,
-      text: `截止 ${formatDayLabel(deadlineDay)}`,
+      hour: deadlineHour,
+      text: `截止 ${formatDayLabel(deadlineHour)}`,
       emphasis: true,
     });
   }
-  // Dedupe close labels
-  out.sort((a, b) => a.day - b.day);
+  out.sort((a, b) => a.hour - b.hour);
   const deduped: typeof out = [];
   for (const lab of out) {
-    if (deduped.every((x) => Math.abs(x.day - lab.day) > span * 0.08 || span < 3)) {
+    if (deduped.every((x) => Math.abs(x.hour - lab.hour) > span * 0.08 || span < 6)) {
       deduped.push(lab);
     }
   }
@@ -339,16 +375,22 @@ function gapAnalysis(
   return { remaining, gapLabel, closerLabel };
 }
 
-function uniqueTicks(vals: number[]): number[] {
-  const sorted = [...vals].filter((v) => Number.isFinite(v)).sort((a, b) => b - a);
-  const out: number[] = [];
-  for (const v of sorted) {
-    if (out.every((x) => Math.abs(x - v) > 1e-6)) out.push(v);
+function spacedYTicks(
+  candidates: number[],
+  yAt: (v: number) => number,
+  minGapPx: number,
+): number[] {
+  // Keep input order as priority (first wins when labels would overlap).
+  const uniq: number[] = [];
+  for (const v of candidates) {
+    if (!Number.isFinite(v)) continue;
+    if (uniq.every((x) => Math.abs(x - v) > 1e-6)) uniq.push(v);
   }
-  if (out.length <= 5) return out;
-  return [out[0], out[Math.floor(out.length / 2)], out[out.length - 1]].filter(
-    (v, i, a) => a.indexOf(v) === i,
-  );
+  const out: number[] = [];
+  for (const v of uniq) {
+    if (out.every((x) => Math.abs(yAt(x) - yAt(v)) >= minGapPx)) out.push(v);
+  }
+  return out.sort((a, b) => b - a);
 }
 
 function formatNum(n: number) {

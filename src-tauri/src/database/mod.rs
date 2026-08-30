@@ -228,9 +228,10 @@ impl Database {
                     note TEXT NOT NULL DEFAULT '',
                     progress INTEGER NOT NULL DEFAULT 0,
                     value REAL,
-                    created_at TEXT NOT NULL,
-                    UNIQUE(goal_id, date)
+                    created_at TEXT NOT NULL
                 );
+                CREATE INDEX IF NOT EXISTS idx_goal_checkins_goal_date
+                    ON goal_checkins(goal_id, date);
                 ",
             )?;
             // Existing DBs created before plan modes / principal-interest split.
@@ -279,9 +280,10 @@ impl Database {
                     note TEXT NOT NULL DEFAULT '',
                     progress INTEGER NOT NULL DEFAULT 0,
                     value REAL,
-                    created_at TEXT NOT NULL,
-                    UNIQUE(goal_id, date)
-                );",
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_goal_checkins_goal_date
+                    ON goal_checkins(goal_id, date);",
             )?;
             // Legacy rows: treat full amount as principal so repayment still reduces余额.
             conn.execute(

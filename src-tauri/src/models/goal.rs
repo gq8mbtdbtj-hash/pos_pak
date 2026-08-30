@@ -167,6 +167,8 @@ pub struct CreateCheckinInput {
     pub value: Option<f64>,
     /// Legacy alias accepted by older clients.
     pub progress: Option<i32>,
-    /// YYYY-MM-DD; defaults to today.
+    /// YYYY-MM-DD; defaults from `at` or today.
     pub date: Option<String>,
+    /// ISO-8601 datetime; truncated to the hour. Defaults to now.
+    pub at: Option<String>,
 }

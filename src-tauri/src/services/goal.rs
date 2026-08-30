@@ -6,7 +6,7 @@ use crate::models::goal::{
 };
 use crate::models::task::{CreateTaskInput, TaskPriority};
 use crate::services::task::TaskService;
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
@@ -207,7 +207,10 @@ impl<'a> GoalService<'a> {
             let mut stmt = conn.prepare(
                 "SELECT id, goal_id, title, due_date, done, task_id, habit_id, sort_order, created_at
                  FROM goal_milestones WHERE goal_id = ?1
-                 ORDER BY sort_order ASC, created_at ASC",
+                 ORDER BY
+                   CASE WHEN due_date IS NULL OR TRIM(due_date) = '' THEN 1 ELSE 0 END,
+                   due_date ASC,
+                   sort_order ASC",
             )?;
             let rows = stmt.query_map(params![goal_id], map_milestone_row)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
@@ -223,6 +226,8 @@ impl<'a> GoalService<'a> {
         if title.is_empty() {
             return Err(AppError::Other("里程碑标题不能为空".into()));
         }
+        let due = parse_opt_date(input.due_date.as_deref())
+            .ok_or_else(|| AppError::Other("请填写里程碑截止日".into()))?;
         let id = Uuid::new_v4().to_string();
         let sort_order: i32 = self.db.with_conn(|conn| {
             conn.query_row(
@@ -233,15 +238,17 @@ impl<'a> GoalService<'a> {
             .map_err(AppError::from)
         })?;
         let now = Utc::now();
+        let due_s = due.format("%Y-%m-%d").to_string();
         self.db.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO goal_milestones
                  (id, goal_id, title, due_date, done, task_id, habit_id, sort_order, created_at)
-                 VALUES (?1, ?2, ?3, NULL, 0, ?4, ?5, ?6, ?7)",
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8)",
                 params![
                     id,
                     goal_id,
                     title,
+                    due_s,
                     input.task_id,
                     input.habit_id,
                     sort_order,
@@ -306,7 +313,7 @@ impl<'a> GoalService<'a> {
                 "SELECT id, goal_id, date, note,
                         COALESCE(value, CAST(progress AS REAL)), created_at
                  FROM goal_checkins WHERE goal_id = ?1
-                 ORDER BY date DESC, created_at DESC",
+                 ORDER BY created_at DESC, date DESC",
             )?;
             let rows = stmt.query_map(params![goal_id], map_checkin_row)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
@@ -318,7 +325,8 @@ impl<'a> GoalService<'a> {
         if !goal.kind.uses_daily_checkins() {
             return Err(AppError::Other("计划请记录里程碑，而不是每日打卡".into()));
         }
-        let date = parse_opt_date(input.date.as_deref()).unwrap_or_else(|| Utc::now().date_naive());
+        let at = parse_checkin_at(input.at.as_deref());
+        let date = parse_opt_date(input.date.as_deref()).unwrap_or_else(|| at.date_naive());
         let note = input.note.unwrap_or_default().trim().to_string();
         let value = if goal.kind == GoalKind::Habit {
             // Presence check-in; measured value optional / unused for progress.
@@ -330,31 +338,44 @@ impl<'a> GoalService<'a> {
             input
                 .value
                 .or_else(|| input.progress.map(|p| p as f64))
-                .ok_or_else(|| AppError::Other("请填写今日实测值".into()))?
+                .ok_or_else(|| AppError::Other("请填写实测值".into()))?
         };
-        let now = Utc::now();
         let id = Uuid::new_v4().to_string();
+        let date_s = date.format("%Y-%m-%d").to_string();
+        let at_s = at.to_rfc3339();
 
         self.db.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO goal_checkins (id, goal_id, date, note, progress, value, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(goal_id, date) DO UPDATE SET
-                   note = excluded.note,
-                   progress = excluded.progress,
-                   value = excluded.value,
-                   created_at = excluded.created_at",
-                params![
-                    id,
-                    goal_id,
-                    date.format("%Y-%m-%d").to_string(),
-                    note,
-                    // Legacy progress column: do not clamp metric values into 0–100.
-                    0,
-                    value,
-                    now.to_rfc3339(),
-                ],
-            )?;
+            if goal.kind == GoalKind::Habit {
+                // Habit: one presence row per calendar day (upsert).
+                let existing: Option<String> = conn
+                    .query_row(
+                        "SELECT id FROM goal_checkins WHERE goal_id = ?1 AND date = ?2 LIMIT 1",
+                        params![goal_id, date_s],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(eid) = existing {
+                    conn.execute(
+                        "UPDATE goal_checkins
+                         SET note = ?1, progress = 0, value = ?2, created_at = ?3
+                         WHERE id = ?4",
+                        params![note, value, at_s, eid],
+                    )?;
+                } else {
+                    conn.execute(
+                        "INSERT INTO goal_checkins (id, goal_id, date, note, progress, value, created_at)
+                         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+                        params![id, goal_id, date_s, note, value, at_s],
+                    )?;
+                }
+            } else {
+                // Checkin: allow multiple rows the same day; time to the hour.
+                conn.execute(
+                    "INSERT INTO goal_checkins (id, goal_id, date, note, progress, value, created_at)
+                     VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+                    params![id, goal_id, date_s, note, value, at_s],
+                )?;
+            }
             Ok(())
         })?;
         if goal.kind == GoalKind::Checkin {
@@ -595,7 +616,7 @@ impl<'a> GoalService<'a> {
         self.db.with_conn(|conn| {
             conn.query_row(
                 "SELECT value FROM goal_checkins WHERE goal_id = ?1 AND value IS NOT NULL
-                 ORDER BY date DESC, created_at DESC LIMIT 1",
+                 ORDER BY created_at DESC LIMIT 1",
                 params![goal_id],
                 |row| row.get(0),
             )
@@ -608,7 +629,7 @@ impl<'a> GoalService<'a> {
         self.db.with_conn(|conn| {
             conn.query_row(
                 "SELECT value FROM goal_checkins WHERE goal_id = ?1 AND value IS NOT NULL
-                 ORDER BY date ASC, created_at ASC LIMIT 1",
+                 ORDER BY created_at ASC LIMIT 1",
                 params![goal_id],
                 |row| row.get(0),
             )
@@ -745,6 +766,44 @@ fn parse_opt_date(s: Option<&str>) -> Option<NaiveDate> {
     s.and_then(|raw| NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").ok())
 }
 
+/// Parse check-in timestamp and truncate to the hour (minutes/seconds discarded).
+fn parse_checkin_at(s: Option<&str>) -> DateTime<Utc> {
+    match s.map(str::trim).filter(|x| !x.is_empty()) {
+        Some(raw) => {
+            if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
+                return truncate_local_hour(dt.with_timezone(&chrono::Local));
+            }
+            for fmt in ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M"] {
+                if let Ok(naive) = NaiveDateTime::parse_from_str(raw, fmt) {
+                    let truncated = naive
+                        .date()
+                        .and_hms_opt(naive.hour(), 0, 0)
+                        .unwrap_or(naive);
+                    return chrono::Local
+                        .from_local_datetime(&truncated)
+                        .single()
+                        .map(|d| d.with_timezone(&Utc))
+                        .unwrap_or_else(|| Utc.from_utc_datetime(&truncated));
+                }
+            }
+            truncate_local_hour(chrono::Local::now())
+        }
+        None => truncate_local_hour(chrono::Local::now()),
+    }
+}
+
+fn truncate_local_hour(local: chrono::DateTime<chrono::Local>) -> DateTime<Utc> {
+    let naive = local
+        .date_naive()
+        .and_hms_opt(local.hour(), 0, 0)
+        .unwrap_or(local.naive_local());
+    chrono::Local
+        .from_local_datetime(&naive)
+        .single()
+        .map(|d| d.with_timezone(&Utc))
+        .unwrap_or_else(|| Utc::now())
+}
+
 fn map_goal_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal> {
     let target: Option<String> = row.get(3)?;
     let kind: String = row.get(4)?;
@@ -828,6 +887,7 @@ pub fn migrate_schema_and_habits(conn: &Connection) -> AppResult<()> {
         "ALTER TABLE goal_checkins ADD COLUMN value REAL",
         [],
     );
+    migrate_goal_checkins_allow_multi_per_day(conn)?;
     let _ = conn.execute(
         "UPDATE goal_checkins SET value = CAST(progress AS REAL)
          WHERE value IS NULL",
@@ -906,12 +966,19 @@ pub fn migrate_schema_and_habits(conn: &Connection) -> AppResult<()> {
             rows.collect::<Result<Vec<_>, _>>()?
         };
         for date in records {
+            let exists: i32 = conn.query_row(
+                "SELECT COUNT(*) FROM goal_checkins WHERE goal_id = ?1 AND date = ?2",
+                params![goal_id, date],
+                |row| row.get(0),
+            )?;
+            if exists > 0 {
+                continue;
+            }
             let cid = Uuid::new_v4().to_string();
             let now = Utc::now().to_rfc3339();
             let _ = conn.execute(
                 "INSERT INTO goal_checkins (id, goal_id, date, note, progress, value, created_at)
-                 VALUES (?1, ?2, ?3, '', 1, 1, ?4)
-                 ON CONFLICT(goal_id, date) DO UPDATE SET value = 1, progress = 1",
+                 VALUES (?1, ?2, ?3, '', 1, 1, ?4)",
                 params![cid, goal_id, date, now],
             );
         }
@@ -922,5 +989,43 @@ pub fn migrate_schema_and_habits(conn: &Connection) -> AppResult<()> {
         )?;
     }
 
+    Ok(())
+}
+
+/// Drop UNIQUE(goal_id, date) so check-in goals can log multiple times per day.
+fn migrate_goal_checkins_allow_multi_per_day(conn: &Connection) -> AppResult<()> {
+    let sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'goal_checkins'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or_default();
+    if sql.is_empty() || !sql.to_ascii_uppercase().contains("UNIQUE") {
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_goal_checkins_goal_date ON goal_checkins(goal_id, date)",
+            [],
+        );
+        return Ok(());
+    }
+    conn.execute_batch(
+        "
+        CREATE TABLE goal_checkins_new (
+            id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            progress INTEGER NOT NULL DEFAULT 0,
+            value REAL,
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO goal_checkins_new (id, goal_id, date, note, progress, value, created_at)
+        SELECT id, goal_id, date, note, progress, value, created_at FROM goal_checkins;
+        DROP TABLE goal_checkins;
+        ALTER TABLE goal_checkins_new RENAME TO goal_checkins;
+        CREATE INDEX IF NOT EXISTS idx_goal_checkins_goal_date ON goal_checkins(goal_id, date);
+        ",
+    )?;
     Ok(())
 }

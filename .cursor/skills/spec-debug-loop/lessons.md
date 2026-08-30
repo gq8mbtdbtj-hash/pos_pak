@@ -17,7 +17,12 @@
 - 根因：模型曾用 progress 兼做完成度与录入
 - 防再发：checkin 存 `value`；progress 由 `(current-start)/(target-start)` 派生；创建强制 start/target
 
-### 2026-08-30 · 发薪日未进同步包
-- 现象：改发薪日后推送/拉取，另一端仍是默认 1
-- 根因：`app_prefs.json` 未打入 sync/backup zip
-- 防再发：pack 含 `data/app_prefs.json`；设置变更派发 `personal-os:prefs-changed` 刷新记账页
+### 2026-08-30 · 里程碑必填截止日
+- 现象：Spec 曾写「无截止时间」，且 `add_milestone` 插入时硬编码 `due_date=NULL`
+- 根因：字段有但未接线 / Spec 过时
+- 防再发：创建必填 `dueDate`；列表展示并按截止日排序；对照 Spec §3.3
+
+### 2026-08-30 · 打卡图 Y 轴与单日列表
+- 现象：Y 轴按每个数据点贴标签会重叠；列表同日多条难读
+- 根因：`uniqueTicks` 塞入过多点值；列表未按日聚合
+- 防再发：Y 轴仅 max/min/目标/起点（间距过滤）；列表与图均「每天最晚一次」

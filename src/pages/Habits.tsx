@@ -34,6 +34,39 @@ function usesDaily(kind: Goal["kind"] | undefined) {
   return k === "habit" || k === "checkin";
 }
 
+/** `datetime-local` value truncated to the hour. */
+function defaultLogAtHour(): string {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`;
+}
+
+function formatCheckinWhen(createdAt: string, date: string): string {
+  const d = new Date(createdAt);
+  if (!Number.isFinite(d.getTime())) return date;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:00`;
+}
+
+/** One row per calendar day — keep the latest check-in that day. */
+function latestCheckinPerDay(checkins: GoalDetail["checkins"]) {
+  const byDay = new Map<string, (typeof checkins)[number]>();
+  for (const c of checkins) {
+    const day = (c.date || "").slice(0, 10) || formatCheckinWhen(c.createdAt, "").slice(0, 10);
+    const prev = byDay.get(day);
+    if (
+      !prev ||
+      new Date(c.createdAt).getTime() >= new Date(prev.createdAt).getTime()
+    ) {
+      byDay.set(day, c);
+    }
+  }
+  return [...byDay.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
 export default function HabitsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<GoalDetail | null>(null);
@@ -46,7 +79,9 @@ export default function HabitsPage() {
   const [unit, setUnit] = useState("");
   const [logNote, setLogNote] = useState("");
   const [logValue, setLogValue] = useState("");
+  const [logAt, setLogAt] = useState(defaultLogAtHour);
   const [milestoneTitle, setMilestoneTitle] = useState("");
+  const [milestoneDue, setMilestoneDue] = useState("");
 
   const refreshGoals = useCallback(async (preferId?: string | null) => {
     const list = await api.goalList();
@@ -96,6 +131,7 @@ export default function HabitsPage() {
     setLogNote("");
     setLogValue("");
     setMilestoneTitle("");
+    setMilestoneDue("");
     if (goalFilter === "habit" || goalFilter === "checkin" || goalFilter === "plan") {
       setGoalKind(goalFilter);
     }
@@ -185,11 +221,17 @@ export default function HabitsPage() {
   const addMilestone = async () => {
     if (!selectedGoal || !milestoneTitle.trim()) return;
     if (normalizeKind(selectedGoal.goal.kind) !== "plan") return;
+    if (!milestoneDue.trim()) {
+      toastErr("请填写里程碑截止日");
+      return;
+    }
     try {
       const detail = await api.goalAddMilestone(selectedGoal.goal.id, {
         title: milestoneTitle.trim(),
+        dueDate: milestoneDue.trim(),
       });
       setMilestoneTitle("");
+      setMilestoneDue("");
       setSelectedGoal(detail);
       setGoals(await api.goalList());
     } catch (e) {
@@ -214,16 +256,20 @@ export default function HabitsPage() {
     if (kind === "checkin") {
       const valueNum = Number(logValue.trim());
       if (!Number.isFinite(valueNum)) {
-        toastErr("请填写今日实测值");
+        toastErr("请填写实测值");
         return;
       }
+      const at = (logAt || defaultLogAtHour()).slice(0, 16);
       try {
         const detail = await api.goalAddCheckin(selectedGoal.goal.id, {
           note: logNote.trim() || undefined,
           value: valueNum,
+          at,
+          date: at.slice(0, 10),
         });
         setLogNote("");
         setLogValue("");
+        setLogAt(defaultLogAtHour());
         setSelectedGoal(detail);
         setGoals(await api.goalList());
       } catch (e) {
@@ -282,13 +328,17 @@ export default function HabitsPage() {
   const selectedKind = selectedGoal ? normalizeKind(selectedGoal.goal.kind) : "plan";
   const logLabel =
     selectedKind === "checkin"
-      ? "今日打卡"
+      ? "打卡"
       : selectedKind === "habit"
         ? "今日习惯"
         : "新建里程碑";
   const doneCount = selectedGoal?.milestones.filter((m) => m.done).length ?? 0;
   const stageCount = selectedGoal?.milestones.length ?? 0;
   const checkinCount = selectedGoal?.checkins.length ?? 0;
+  const checkinDays = selectedGoal
+    ? latestCheckinPerDay(selectedGoal.checkins)
+    : [];
+  const checkinDayCount = checkinDays.length;
 
   const chartTarget = Number(selectedGoal?.goal.targetValue);
   const chartReady =
@@ -376,9 +426,26 @@ export default function HabitsPage() {
                 <div className="dock-composer-actions">
                   <input
                     className="dock-milestone-progress"
+                    type="datetime-local"
+                    step={3600}
+                    value={logAt}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) {
+                        setLogAt(defaultLogAtHour());
+                        return;
+                      }
+                      // Force minutes to :00
+                      setLogAt(`${v.slice(0, 13)}:00`);
+                    }}
+                    aria-label="打卡时间（精确到小时）"
+                    data-no-tab-swipe
+                  />
+                  <input
+                    className="dock-milestone-progress"
                     type="number"
                     inputMode="decimal"
-                    placeholder={`今日实测值${selectedGoal.goal.unit ? `（${selectedGoal.goal.unit}）` : ""}`}
+                    placeholder={`实测值${selectedGoal.goal.unit ? `（${selectedGoal.goal.unit}）` : ""}`}
                     value={logValue}
                     onChange={(e) => setLogValue(e.target.value)}
                     data-no-tab-swipe
@@ -419,6 +486,12 @@ export default function HabitsPage() {
                   data-no-tab-swipe
                 />
                 <div className="dock-composer-actions">
+                  <DockDateField
+                    label="截止"
+                    value={milestoneDue}
+                    onChange={setMilestoneDue}
+                    ariaLabel="里程碑截止日"
+                  />
                   <button className="btn" type="button" onClick={addMilestone}>
                     添加
                   </button>
@@ -517,7 +590,7 @@ export default function HabitsPage() {
       }
     >
       <p className="muted hint" style={{ marginBottom: "0.75rem" }}>
-        计划：里程碑勾选；习惯：66 天出勤养成；打卡：起止实测值 + 折线差距。
+        计划：里程碑勾选（必填截止日）；习惯：66 天出勤养成；打卡：起止实测值 + 折线差距。
       </p>
       <div className="goal-layout">
         <section className="panel">
@@ -593,9 +666,11 @@ export default function HabitsPage() {
                           selectedGoal.checkedToday ? " · 今日已打卡" : ""
                         }`
                       : selectedKind === "checkin"
-                        ? ` · 记录 ${checkinCount} 次${
-                            selectedGoal.checkedToday ? " · 今日已打卡" : ""
-                          }`
+                        ? ` · ${checkinDayCount} 天${
+                            checkinCount > checkinDayCount
+                              ? `（共 ${checkinCount} 次）`
+                              : ""
+                          }${selectedGoal.checkedToday ? " · 今日已打卡" : ""}`
                         : stageCount > 0
                           ? ` · 里程碑 ${doneCount}/${stageCount}`
                           : ""}
@@ -626,15 +701,17 @@ export default function HabitsPage() {
                       缺少目标值，请重建该打卡任务（目标如 76 + 单位 kg）
                     </p>
                   )}
-                  {selectedGoal.checkins.length === 0 ? (
-                    <p className="empty-state compact">暂无记录，用底部填写今日实测值</p>
+                  {checkinDays.length === 0 ? (
+                    <p className="empty-state compact">
+                      暂无记录；可同日多次打卡，列表与图表按每天最晚一次显示
+                    </p>
                   ) : (
-                    selectedGoal.checkins.map((c) => (
+                    checkinDays.map((c) => (
                       <div key={c.id} className="list-item">
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div>{c.note || "打卡"}</div>
                           <div className="muted">
-                            {c.date} · 值 {c.value}
+                            {formatCheckinWhen(c.createdAt, c.date)} · 值 {c.value}
                             {selectedGoal.goal.unit ?? ""}
                           </div>
                         </div>
@@ -684,7 +761,7 @@ export default function HabitsPage() {
                 </>
               ) : selectedGoal.milestones.length === 0 ? (
                 <p className="empty-state compact">
-                  暂无里程碑，用底部添加后勾选完成
+                  暂无里程碑，用底部填写标题与截止日后添加
                 </p>
               ) : (
                 selectedGoal.milestones.map((m) => (
@@ -701,6 +778,9 @@ export default function HabitsPage() {
                         }}
                       >
                         {m.title}
+                      </div>
+                      <div className="muted">
+                        {m.dueDate ? `截止 ${m.dueDate}` : "未设截止日"}
                       </div>
                     </div>
                     <button

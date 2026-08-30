@@ -434,7 +434,13 @@ export const api = {
     invoke<GoalDetail>("goal_delete_milestone", { milestoneId }),
   goalAddCheckin: (
     goalId: string,
-    input: { note?: string; value?: number; progress?: number; date?: string },
+    input: {
+      note?: string;
+      value?: number;
+      progress?: number;
+      date?: string;
+      at?: string;
+    },
   ) => invoke<GoalDetail>("goal_add_checkin", { goalId, input }),
   goalDeleteCheckin: (checkinId: string) =>
     invoke<GoalDetail>("goal_delete_checkin", { checkinId }),
