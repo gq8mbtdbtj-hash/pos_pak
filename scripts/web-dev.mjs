@@ -9,6 +9,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import http from "node:http";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -17,6 +18,14 @@ const npmCmd = isWindows ? "npm.cmd" : "npm";
 const goCmd = isWindows ? "go.exe" : "go";
 
 const HEALTH_URL = "http://127.0.0.1:8787/api/health";
+
+// Preflight: front-end deps must be installed (they change when the repo updates).
+if (!existsSync(join(root, "node_modules", "vite")) || !existsSync(join(root, "node_modules", "vite-plugin-pwa"))) {
+  console.error(
+    "\n❌ 前端依赖未安装或有更新。请先运行：\n\n    npm install\n\n然后再 `npm run dev`。（拉取更新后新增了依赖时需要重装）\n",
+  );
+  process.exit(1);
+}
 
 // Fail fast with an actionable message if Go isn't installed.
 const goCheck = spawnSync(goCmd, ["version"], { encoding: "utf8" });
@@ -62,10 +71,18 @@ function run(name, command, args, cwd, extraEnv = {}, needsShell = false) {
   pipe(child.stderr, process.stderr);
   child.on("exit", (code) => {
     process.stdout.write(`${prefix}exited with code ${code}\n`);
-    if (name === "go" && !backendReady) {
-      console.error(
-        "\n❌ 后端进程已退出且未就绪。请确认已安装 Go 1.22+，并查看上方 [go] 日志。\n",
-      );
+    // Only explain the *first* failure; a process killed by shutdown (because the
+    // other one failed) should not print a misleading second hint.
+    if (!shuttingDown && code && code !== 0) {
+      if (name === "vite") {
+        console.error(
+          "\n❌ 前端启动失败（常见原因：依赖缺失或有更新）。请运行 `npm install` 后重试。\n",
+        );
+      } else if (name === "go" && !backendReady) {
+        console.error(
+          "\n❌ Go 后端启动失败。请确认已安装 Go 1.22+，并查看上方 [go] 日志。\n",
+        );
+      }
     }
     shutdown();
   });
