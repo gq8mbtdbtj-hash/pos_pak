@@ -3,6 +3,7 @@ import "./App.css";
 import TitleBar from "./components/TitleBar";
 import UnlockGate from "./components/UnlockGate";
 import DebtReminderPopups from "./components/DebtReminderPopups";
+import SyncFabs from "./components/SyncFabs";
 import { ToastHost } from "./components/Toast";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
@@ -149,6 +150,10 @@ function App() {
             </nav>
           )}
           <DebtReminderPopups enabled={unlocked} />
+          <SyncFabs
+            enabled={unlocked}
+            dockLift={["dashboard", "tasks", "habits", "finance", "knowledge"].includes(page)}
+          />
         </div>
       )}
       <ToastHost />

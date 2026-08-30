@@ -83,6 +83,6 @@ copy /Y src-tauri\icons\android\values\ic_launcher_background.xml src-tauri\gen\
 | 记账明细列表 | 可看可改 | 可看可改 |
 | 知识库 | 可编辑（后续含导入等） | 仅问答检索 + 阅读（`canEditKnowledge` / 命令拒绝写） |
 | 解锁后 Git 拉同步 | HTTPS 软拉取 | HTTPS 软拉取（失败不挡解锁） |
-| Git 配置跨端 | 复制/文件导出 | 粘贴导入 + 可自动拉推 |
+| Git 配置跨端 | 复制/文件导出 | 粘贴导入；同步用右下角「拉 / 推」 |
 | 应用图标 | `tauri icon` | 需把 `icons/android/mipmap-*` 同步进 `gen/android/.../res` 后重装 |
 | 系统通知 | 有 | 有（同一 `reminders.ts`） |

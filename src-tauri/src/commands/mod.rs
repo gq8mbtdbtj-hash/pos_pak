@@ -1009,20 +1009,13 @@ fn apply_git_config_import(
         refresh_session_vault(state);
     }
 
-    match do_sync_pull(state).and_then(|_| do_sync_push(state)) {
-        Ok(sync) => Ok(GitConfigImportResult {
-            imported: true,
-            sync: Some(sync),
-            sync_note: None,
-        }),
-        Err(e) => Ok(GitConfigImportResult {
-            imported: true,
-            sync: None,
-            sync_note: Some(format!(
-                "配置已导入（含同步密钥）。同步未完成：{e}。可稍后在设置里手动拉取"
-            )),
-        }),
-    }
+    Ok(GitConfigImportResult {
+        imported: true,
+        sync: None,
+        sync_note: Some(
+            "配置已导入。启动不会自动同步，请用左下角「拉 / 推」手动同步。".into(),
+        ),
+    })
 }
 
 #[tauri::command]

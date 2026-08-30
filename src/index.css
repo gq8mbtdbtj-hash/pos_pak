@@ -12,8 +12,9 @@
   --panel: rgba(255, 252, 247, 0.82);
   --panel-solid: #fffbf5;
   --line: rgba(28, 36, 32, 0.1);
-  --accent: #0f6b5c;
-  --accent-soft: #d7ebe4;
+  --accent: #3f6f5f;
+  --accent-soft: #e4efe9;
+  --accent-ink: #2a4f43;
   --income: #1f7a5c;
   --expense: #c45c3e;
   --danger: #a63d2e;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, VaultStatus, SyncPullResult, GitCommitInfo } from "../services/api";
+import { api, VaultStatus } from "../services/api";
 import { toastErr } from "./Toast";
 
 type Props = {
@@ -11,7 +11,6 @@ export default function UnlockGate({ onUnlocked }: Props) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
-  const [conflict, setConflict] = useState<SyncPullResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,28 +36,8 @@ export default function UnlockGate({ onUnlocked }: Props) {
   }, []);
 
   const finishUnlock = async (status: VaultStatus) => {
-    if (status.needsDefaultRemote) {
-      onUnlocked(status);
-      return;
-    }
-    if (status.syncConfigured) {
-      try {
-        const pull = await api.syncPull();
-        if (pull.status === "conflict") {
-          setConflict(pull);
-          return;
-        }
-      } catch (e) {
-        console.warn("startup pull failed", e);
-        toastErr(String(e));
-      }
-    }
-    try {
-      const refreshed = await api.vaultStatus();
-      onUnlocked(refreshed);
-    } catch {
-      onUnlocked(status);
-    }
+    // No auto pull/push on unlock — user syncs via floating buttons when ready.
+    onUnlocked(status);
   };
 
   const submit = async () => {
@@ -85,44 +64,6 @@ export default function UnlockGate({ onUnlocked }: Props) {
       setBusy(false);
     }
   };
-
-  const resolveCommit = async (commit: GitCommitInfo) => {
-    setBusy(true);
-    try {
-      await api.syncResolveCommit(commit.id);
-      const status = await api.vaultStatus();
-      setConflict(null);
-      onUnlocked(status);
-    } catch (e) {
-      toastErr(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (conflict?.conflict) {
-    return (
-      <div className="unlock-screen">
-        <div className="unlock-card">
-          <h1>同步冲突</h1>
-          <p className="muted">{conflict.conflict.message}</p>
-          <ul className="commit-list">
-            {conflict.conflict.commits.map((c) => (
-              <li key={c.id}>
-                <button className="btn commit-pick" disabled={busy} onClick={() => resolveCommit(c)}>
-                  <strong>{c.shortId}</strong>
-                  <span>{c.summary}</span>
-                  <span className="muted">
-                    {c.author} · {c.time}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    );
-  }
 
   const title =
     mode === "init"

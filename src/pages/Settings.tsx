@@ -383,54 +383,6 @@ export default function SettingsPage({ onLocked }: Props) {
     }
   };
 
-  const handlePull = async () => {
-    setBusy(true);
-    try {
-      const r = await api.syncPull();
-      if (r.status === "conflict") {
-        setConflict(r);
-        flash("err", "存在冲突，请选择提交");
-      } else {
-        flash(
-          "ok",
-          `拉取：${r.status}${r.revision ? ` @ ${r.revision.slice(0, 8)}` : ""}`,
-        );
-        await refresh();
-      }
-    } catch (e) {
-      flash("err", errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handlePush = async () => {
-    setBusy(true);
-    try {
-      const r = await api.syncPush();
-      if (r.status === "conflict") {
-        setConflict(r);
-        flash("err", "存在冲突，请选择提交后再推送");
-      } else {
-        const label =
-          r.status === "pushed"
-            ? "已上传到远端"
-            : r.status === "up_to_date"
-              ? "远端已是最新"
-              : r.status;
-        flash(
-          "ok",
-          `推送：${label}${r.contentHash ? ` · ${r.contentHash.slice(0, 12)}` : ""}`,
-        );
-        await refresh();
-      }
-    } catch (e) {
-      flash("err", errText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const resolveCommit = async (commit: GitCommitInfo) => {
     setBusy(true);
     try {
@@ -491,20 +443,18 @@ export default function SettingsPage({ onLocked }: Props) {
 
   return (
     <div className="page page-settings">
-      <header className="page-header page-header--settings">
-        <div className="settings-header-row">
-          {panel !== "home" ? (
-            <button type="button" className="settings-back" onClick={goHome}>
-              ‹ 设置
-            </button>
-          ) : (
-            <span className="settings-back settings-back--spacer" aria-hidden />
-          )}
-          <div className="settings-header-titles">
-            <p className="eyebrow">Settings</p>
-            <h2 className="page-title">{panelTitle}</h2>
-          </div>
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Settings</p>
+          <h2 className="page-title">{panelTitle}</h2>
         </div>
+        {panel !== "home" && (
+          <div className="segmented segmented--jump" role="group" aria-label="返回设置">
+            <button type="button" onClick={goHome}>
+              设置
+            </button>
+          </div>
+        )}
       </header>
 
       {panel === "home" && (
@@ -558,26 +508,11 @@ export default function SettingsPage({ onLocked }: Props) {
                       </li>
                     ))}
                   </ul>
-                  <div className="settings-inline-actions">
-                    <button
-                      className="btn btn-ghost"
-                      disabled={busy || syncBlocked || remotes.length === 0}
-                      onClick={handlePull}
-                    >
-                      立即拉取
-                    </button>
-                    <button
-                      className="btn"
-                      disabled={busy || syncBlocked || remotes.length === 0}
-                      onClick={handlePush}
-                    >
-                      立即推送
-                    </button>
-                  </div>
                   {status && (
                     <p className="muted settings-sync-meta">
                       上次同步：{status.lastSyncAt ?? "—"}
                       {status.lastRevision ? ` · ${status.lastRevision.slice(0, 8)}` : ""}
+                      。需要同步时用「拉 / 推」图标（可左右拖动换边）。
                     </p>
                   )}
                 </>
@@ -762,7 +697,7 @@ export default function SettingsPage({ onLocked }: Props) {
             <p className="muted settings-detail__hint">
               {mobile
                 ? "在另一台设备「配置同步」里复制或导出加密配置，粘贴到下方并填同一传输密码后导入。登录码不会被导出。"
-                : "建议先在设置首页「立即推送」数据，再设传输密码并复制/导出配置，到手机或其它电脑导入。登录码不会被导出。"}
+                : "建议先用左下角「推」上传数据，再设传输密码并复制/导出配置。登录码不会被导出。"}
             </p>
             <div className="form-col">
               <input
