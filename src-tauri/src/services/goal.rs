@@ -4,7 +4,7 @@ use crate::models::goal::{
     CreateCheckinInput, CreateGoalInput, CreateMilestoneInput, Goal, GoalCheckin, GoalDetail,
     GoalKind, GoalMilestone, GoalStatus, UpdateGoalInput,
 };
-use crate::models::task::{CreateTaskInput, TaskPriority};
+use crate::models::task::{CreateTaskInput, TaskPriority, TaskStatus, UpdateTaskInput};
 use crate::services::task::TaskService;
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -407,7 +407,7 @@ impl<'a> GoalService<'a> {
         self.detail(&goal_id)
     }
 
-    /// Ensure plan goals with target_date have d-3 / d-1 / d0 reminder tasks.
+    /// One reminder task per active plan with target_date; risk from days until due.
     pub fn sync_plan_reminders(&self) -> AppResult<()> {
         let tasks = TaskService::new(self.db);
         let plans: Vec<(String, String, NaiveDate)> = self.db.with_conn(|conn| {
@@ -432,12 +432,7 @@ impl<'a> GoalService<'a> {
 
         let active_keys: std::collections::HashSet<String> = plans
             .iter()
-            .flat_map(|(id, _, _)| {
-                ["d3", "d1", "d0"]
-                    .iter()
-                    .map(|slot| format!("plan-remind:{id}:{slot}"))
-                    .collect::<Vec<_>>()
-            })
+            .map(|(id, _, _)| format!("plan-remind:{id}"))
             .collect();
 
         let orphan_tags: Vec<(String, String)> = self.db.with_conn(|conn| {
@@ -458,53 +453,62 @@ impl<'a> GoalService<'a> {
             }
         }
 
+        let today = chrono::Local::now().date_naive();
+        let horizon = today + Duration::days(31);
+
         for (goal_id, title, due) in plans {
-            for (slot, offset_days) in [("d3", 3), ("d1", 1), ("d0", 0)] {
-                let tag = format!("plan-remind:{goal_id}:{slot}");
-                let remind_day = due - Duration::days(offset_days);
-                let due_at = local_noon(remind_day);
-                let slot_label = match slot {
-                    "d3" => "提前 3 天",
-                    "d1" => "提前 1 天",
-                    _ => "截止日",
-                };
-                let task_title = format!("计划提醒 · {title} · {slot_label}");
-                let tags = vec![
-                    tag.clone(),
-                    "计划提醒".into(),
-                    format!("plan-due:{due}"),
-                ];
-                if let Some(existing_id) = tasks.find_id_by_tag(&tag)? {
-                    let existing = tasks.get(&existing_id)?;
-                    if existing.status.as_str() == "done" || existing.status.as_str() == "cancelled"
-                    {
-                        continue;
-                    }
-                    let _ = tasks.update(
-                        &existing_id,
-                        crate::models::task::UpdateTaskInput {
-                            title: Some(task_title),
-                            description: Some(format!("计划「{title}」截止日 {due}")),
-                            due_at: Some(Some(due_at)),
-                            tags: Some(tags),
-                            ..Default::default()
-                        },
-                    );
-                } else {
-                    let _ = tasks.create(CreateTaskInput {
-                        title: task_title,
-                        description: Some(format!("计划「{title}」截止日 {due}")),
-                        priority: Some(if slot == "d0" {
-                            TaskPriority::High
-                        } else if slot == "d1" {
-                            TaskPriority::Medium
-                        } else {
-                            TaskPriority::Low
-                        }),
-                        due_at: Some(due_at),
-                        tags: Some(tags),
-                    });
+            let tag = format!("plan-remind:{goal_id}");
+
+            if due > horizon {
+                if let Some(existing) = tasks.find_id_by_tag(&tag)? {
+                    let _ = tasks.delete(&existing);
                 }
+                continue;
+            }
+
+            let days_left = (due - today).num_days();
+            if days_left < -30 {
+                if let Some(existing) = tasks.find_id_by_tag(&tag)? {
+                    let _ = tasks.delete(&existing);
+                }
+                continue;
+            }
+
+            let priority = TaskPriority::from_days_until_due(days_left);
+            let task_title = format!("计划提醒 · {title}");
+            let description = Some(format!("计划「{title}」截止日 {due}"));
+            let due_at = local_noon(due);
+            let tags = vec![
+                tag.clone(),
+                "计划提醒".into(),
+                format!("plan-due:{due}"),
+            ];
+
+            if let Some(existing_id) = tasks.find_id_by_tag(&tag)? {
+                let existing = tasks.get(&existing_id)?;
+                if existing.status == TaskStatus::Done || existing.status == TaskStatus::Cancelled
+                {
+                    continue;
+                }
+                let _ = tasks.update(
+                    &existing_id,
+                    UpdateTaskInput {
+                        title: Some(task_title),
+                        description,
+                        due_at: Some(Some(due_at)),
+                        priority: Some(priority),
+                        tags: Some(tags),
+                        status: None,
+                    },
+                );
+            } else {
+                let _ = tasks.create(CreateTaskInput {
+                    title: task_title,
+                    description,
+                    priority: Some(priority),
+                    due_at: Some(due_at),
+                    tags: Some(tags),
+                });
             }
         }
         Ok(())
@@ -1028,4 +1032,92 @@ fn migrate_goal_checkins_allow_multi_per_day(conn: &Connection) -> AppResult<()>
         ",
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::task::TaskPriority;
+    use crate::services::task::TaskService;
+    use tempfile::TempDir;
+
+    #[test]
+    fn sync_plan_reminders_one_task_risk_from_days() {
+        let dir = TempDir::new().unwrap();
+        let db = Database::new(&dir.path().join("g.db")).unwrap();
+        let svc = GoalService::new(&db);
+        let today = chrono::Local::now().date_naive();
+
+        let low = svc
+            .create(CreateGoalInput {
+                title: "三日计划".into(),
+                note: None,
+                target_date: Some((today + Duration::days(3)).format("%Y-%m-%d").to_string()),
+                kind: Some("plan".into()),
+                start_value: None,
+                target_value: None,
+                unit: None,
+            })
+            .unwrap();
+        let high = svc
+            .create(CreateGoalInput {
+                title: "明日计划".into(),
+                note: None,
+                target_date: Some((today + Duration::days(1)).format("%Y-%m-%d").to_string()),
+                kind: Some("plan".into()),
+                start_value: None,
+                target_value: None,
+                unit: None,
+            })
+            .unwrap();
+        let far = svc
+            .create(CreateGoalInput {
+                title: "远期计划".into(),
+                note: None,
+                target_date: Some((today + Duration::days(60)).format("%Y-%m-%d").to_string()),
+                kind: Some("plan".into()),
+                start_value: None,
+                target_value: None,
+                unit: None,
+            })
+            .unwrap();
+
+        let task_svc = TaskService::new(&db);
+        let remind: Vec<_> = task_svc
+            .list(None)
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.tags.iter().any(|tg| tg.starts_with("plan-remind:")))
+            .collect();
+        assert_eq!(remind.len(), 2, "far-future plans must not create tasks");
+        assert!(task_svc
+            .find_id_by_tag(&format!("plan-remind:{}:d3", low.id))
+            .unwrap()
+            .is_none());
+
+        let low_task = task_svc
+            .get(
+                &task_svc
+                    .find_id_by_tag(&format!("plan-remind:{}", low.id))
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(low_task.priority, TaskPriority::Low);
+
+        let high_task = task_svc
+            .get(
+                &task_svc
+                    .find_id_by_tag(&format!("plan-remind:{}", high.id))
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(high_task.priority, TaskPriority::High);
+
+        assert!(task_svc
+            .find_id_by_tag(&format!("plan-remind:{}", far.id))
+            .unwrap()
+            .is_none());
+    }
 }

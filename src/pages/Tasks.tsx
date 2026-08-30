@@ -14,9 +14,14 @@ const PRIORITY_LABEL: Record<Priority, string> = {
   low: "低优先级",
 };
 
-function isCycleBatch(t: Task) {
+function isAutoDue(t: Task) {
   return t.tags.some(
-    (tag) => tag === "周期批量" || tag === "还款提醒" || tag.startsWith("debt-remind:"),
+    (tag) =>
+      tag === "周期批量" ||
+      tag === "还款提醒" ||
+      tag.startsWith("debt-remind:") ||
+      tag === "计划提醒" ||
+      tag.startsWith("plan-remind:"),
   );
 }
 
@@ -36,12 +41,18 @@ function startOfToday() {
   return d.getTime();
 }
 
-function withinDays(t: Task, days: number) {
+function dueWithinDays(t: Task, daysFromToday: number) {
+  const days = daysUntilDue(t);
+  if (days != null) return days < daysFromToday;
   const due = dueMs(t);
   if (due == null) return false;
-  const start = startOfToday();
-  const end = start + days * 86400000;
-  return due >= start - 86400000 && due < end;
+  return due < startOfToday() + daysFromToday * 86400000;
+}
+
+function dueKindLabel(t: Task) {
+  if (t.tags.some((x) => x.startsWith("debt-remind:") || x === "还款提醒")) return "应还";
+  if (t.tags.some((x) => x.startsWith("plan-remind:") || x === "计划提醒")) return "截止";
+  return "截止";
 }
 
 function priorityLabel(p: string) {
@@ -59,9 +70,9 @@ function TaskRow({
   onComplete: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const days = isCycleBatch(task) ? daysUntilDue(task) : null;
+  const days = isAutoDue(task) ? daysUntilDue(task) : null;
   const daysTone =
-    days == null ? "" : days <= 0 ? "task-days--urgent" : days <= 1 ? "task-days--warn" : "task-days--ok";
+    days == null ? "" : days <= 1 ? "task-days--urgent" : "task-days--ok";
 
   return (
     <div className="list-item task-row">
@@ -82,12 +93,12 @@ function TaskRow({
         <div className="muted">
           {priorityLabel(task.priority)}
           {task.dueAt &&
-            ` · 应还 ${new Date(task.dueAt).toLocaleDateString("zh-CN", {
+            ` · ${dueKindLabel(task)} ${new Date(task.dueAt).toLocaleDateString("zh-CN", {
               month: "numeric",
               day: "numeric",
             })}`}
         </div>
-        {isCycleBatch(task) && task.description && (
+        {isAutoDue(task) && task.description && (
           <div className="muted task-desc">{task.description}</div>
         )}
       </div>
@@ -159,8 +170,8 @@ export default function TasksPage() {
 
   const classified = useMemo(() => {
     const open = tasks.filter(isOpen);
-    const regular = open.filter((t) => !isCycleBatch(t));
-    const cycle = open.filter(isCycleBatch);
+    const regular = open.filter((t) => !isAutoDue(t));
+    const cycle = open.filter(isAutoDue);
 
     const byPriority: Record<Priority, Task[]> = {
       high: [],
@@ -173,11 +184,11 @@ export default function TasksPage() {
     }
 
     const cycle7 = cycle
-      .filter((t) => withinDays(t, 7))
+      .filter((t) => dueWithinDays(t, 7))
       .sort((a, b) => (dueMs(a) ?? 0) - (dueMs(b) ?? 0));
     const cycle7Ids = new Set(cycle7.map((t) => t.id));
     const cycle30 = cycle
-      .filter((t) => withinDays(t, 31) && !cycle7Ids.has(t.id))
+      .filter((t) => dueWithinDays(t, 31) && !cycle7Ids.has(t.id))
       .sort((a, b) => (dueMs(a) ?? 0) - (dueMs(b) ?? 0));
 
     const done = tasks.filter((t) => t.status === "done");
@@ -218,8 +229,8 @@ export default function TasksPage() {
       }
     >
         <p className="muted hint" style={{ marginBottom: "1rem" }}>
-          双重分类：日常任务按优先级；还款等周期批量任务仅出现在「近 7 天 / 近 1 月」。剩余天数按今天实时计算；弹窗：提前 3
-          天（低）/ 前一天（中）/ 当天 17:00（高）。
+          自己添加的任务直接进入左侧清单。计划 / 还款到期提醒按截止日与今天对比：正好 3 天为低风险，剩余 ≤ 1
+          天为高风险。
         </p>
 
         <div className="task-dual">
@@ -240,10 +251,10 @@ export default function TasksPage() {
           </div>
 
           <div className="task-dual-col">
-            <p className="eyebrow task-dual-eyebrow">周期批量</p>
+            <p className="eyebrow task-dual-eyebrow">到期提醒</p>
             <TaskSection
               title="近 7 天"
-              hint="含还款提醒等周期性待办"
+              hint="含计划截止与还款；逾期也在此"
               tasks={classified.cycle7}
               onComplete={complete}
               onRemove={remove}
@@ -256,7 +267,7 @@ export default function TasksPage() {
               onRemove={remove}
             />
             {classified.cycle7.length === 0 && classified.cycle30.length === 0 && (
-              <p className="empty-state compact">近一个月暂无周期任务</p>
+              <p className="empty-state compact">近一个月暂无到期提醒</p>
             )}
           </div>
         </div>

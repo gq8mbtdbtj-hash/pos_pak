@@ -13,9 +13,9 @@ export type DebtPopupItem = {
 };
 
 function parseDueDate(task: Task): Date | null {
-  const tag = task.tags.find((t) => t.startsWith("debt-due:"));
+  const tag = task.tags.find((t) => t.startsWith("debt-due:") || t.startsWith("plan-due:"));
   if (tag) {
-    const raw = tag.slice("debt-due:".length);
+    const raw = tag.replace(/^(debt-due:|plan-due:)/, "");
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
     if (m) {
       return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
@@ -46,16 +46,33 @@ export function daysLeftLabel(days: number): string {
   return `已逾期 ${Math.abs(days)} 天`;
 }
 
-function isDebtReminder(t: Task) {
+/** Spec §5: 正好 3 天 = 低风险；≤1 天（含当天与逾期）= 高风险。其它天数不弹窗。 */
+export function dueRiskLevel(days: number): ReminderLevel | null {
+  if (days <= 1) return "high";
+  if (days === 3) return "low";
+  return null;
+}
+
+export function isDueReminder(t: Task) {
   return (
     t.status !== "done" &&
     t.status !== "cancelled" &&
-    t.tags.some((tag) => tag.startsWith("debt-remind:") || tag === "还款提醒")
+    t.tags.some(
+      (tag) =>
+        tag.startsWith("debt-remind:") ||
+        tag === "还款提醒" ||
+        tag.startsWith("plan-remind:") ||
+        tag === "计划提醒",
+    )
   );
 }
 
+function isPlanReminder(t: Task) {
+  return t.tags.some((tag) => tag.startsWith("plan-remind:") || tag === "计划提醒");
+}
+
 function seenKey(itemKey: string) {
-  return `debt-popup-seen:${itemKey}`;
+  return `due-popup-seen:${itemKey}`;
 }
 
 function alreadySeen(itemKey: string) {
@@ -74,42 +91,29 @@ function markSeen(itemKey: string) {
   }
 }
 
-/** Build popup queue: D-3 low, D-1 medium, D-0 from 17:00 high (also overdue = high). */
+/** Popup queue: day 3 = low, ≤1 day (incl. overdue) = high. */
 export function buildDebtPopups(tasks: Task[], now = new Date()): DebtPopupItem[] {
-  const hour = now.getHours();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const out: DebtPopupItem[] = [];
 
-  for (const t of tasks.filter(isDebtReminder)) {
+  for (const t of tasks.filter(isDueReminder)) {
     const days = daysUntilDue(t, now);
     if (days == null) continue;
-    const idTag = t.tags.find((x) => x.startsWith("debt-remind:")) ?? t.id;
-
-    let level: ReminderLevel | null = null;
-    let kind = "";
-    if (days < 0) {
-      level = "high";
-      kind = "overdue";
-    } else if (days === 0 && hour >= 17) {
-      level = "high";
-      kind = "d0";
-    } else if (days === 1) {
-      level = "medium";
-      kind = "d1";
-    } else if (days === 3) {
-      level = "low";
-      kind = "d3";
-    }
-
+    const level = dueRiskLevel(days);
     if (!level) continue;
+
+    const idTag =
+      t.tags.find((x) => x.startsWith("debt-remind:") || x.startsWith("plan-remind:")) ?? t.id;
+    const kind = days < 0 ? "overdue" : days === 0 ? "d0" : days === 1 ? "d1" : "d3";
     const key = `${idTag}:${todayStr}:${kind}`;
     if (alreadySeen(key)) continue;
 
+    const plan = isPlanReminder(t);
     out.push({
       key,
       level,
-      title: t.title.replace(/^\[?还款提醒\]?\s*[·•]?\s*/, "") || t.title,
-      body: t.description?.trim() || "请按时还款。",
+      title: t.title.replace(/^\[?(还款提醒|计划提醒)\]?\s*[·•]?\s*/, "") || t.title,
+      body: t.description?.trim() || (plan ? "请按时完成计划。" : "请按时还款。"),
       daysLeft: days,
       amountHint: undefined,
     });
@@ -121,9 +125,9 @@ export function buildDebtPopups(tasks: Task[], now = new Date()): DebtPopupItem[
 }
 
 const LEVEL_LABEL: Record<ReminderLevel, string> = {
-  low: "提前提醒",
-  medium: "明日到期",
-  high: "紧急提醒",
+  low: "低风险",
+  medium: "中风险",
+  high: "高风险",
 };
 
 type Props = {

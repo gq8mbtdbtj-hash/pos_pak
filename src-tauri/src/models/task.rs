@@ -54,6 +54,15 @@ impl TaskPriority {
             _ => Self::Medium,
         }
     }
+
+    /// Spec §5: 距截止正好 3 天为低风险；≤1 天（含当天与逾期）为高风险。
+    pub fn from_days_until_due(days_left: i64) -> Self {
+        if days_left <= 1 {
+            Self::High
+        } else {
+            Self::Low
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

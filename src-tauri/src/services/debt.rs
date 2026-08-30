@@ -1121,14 +1121,7 @@ impl<'a> DebtService<'a> {
             }
 
             let days_left = (due_date - today).num_days();
-            // Task priority mirrors popup urgency windows.
-            let priority = if days_left <= 0 {
-                TaskPriority::High
-            } else if days_left == 1 {
-                TaskPriority::Medium
-            } else {
-                TaskPriority::Low
-            };
+            let priority = TaskPriority::from_days_until_due(days_left);
 
             let title = format!("还款提醒 · {debt_name} · ¥{amount:.2}");
             let description = Some(format!(
