@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,5 +38,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxRTE3MEI5ODYzMUZDMUUKUldRZS9ER0d1WERoWWFVMnQ4bnk4L1c0ZFVnYWs4N0RYcVg0dWU1MEYydlE1aldvT1FWNGM5V3gK",
+      "endpoints": [
+        "https://github.com/gq8mbtdbtj-hash/pos_pak/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

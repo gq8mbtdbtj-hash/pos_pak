@@ -1,4 +1,4 @@
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::debt::{
     CalibrateRateInput, CalibrateRateResult, CreateDebtInput, CreateDebtPaymentInput,
     CreateRepaymentPlanInput, Debt, DebtDetail, DebtOverview, RepaymentPlan, UpdateDebtInput,
@@ -1102,4 +1102,56 @@ pub fn import_git_config_text(
     transfer_password: String,
 ) -> AppResult<GitConfigImportResult> {
     apply_git_config_import(&state, &bundle_text, &transfer_password, false)
+}
+
+/// Fetch updater `latest.json` via Rust HTTP (avoids WebView CORS on Android).
+const UPDATE_LATEST_JSON_URL: &str =
+    "https://github.com/gq8mbtdbtj-hash/pos_pak/releases/latest/download/latest.json";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateManifestDto {
+    pub version: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[tauri::command]
+pub fn fetch_update_manifest() -> AppResult<Option<UpdateManifestDto>> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("PersonalOS/0.1 (+updater)")
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| AppError::Other(format!("检查更新失败: {e}")))?;
+
+    let res = client
+        .get(UPDATE_LATEST_JSON_URL)
+        .header(reqwest::header::ACCEPT, "application/octet-stream, application/json")
+        .send()
+        .map_err(|e| AppError::Other(format!("检查更新失败: {e}")))?;
+
+    let status = res.status();
+    if status.as_u16() == 404 {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        return Err(AppError::Other(format!("检查更新失败: HTTP {status}")));
+    }
+
+    let body = res
+        .text()
+        .map_err(|e| AppError::Other(format!("检查更新失败: {e}")))?;
+    let value: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| AppError::Other(format!("latest.json 无效: {e}")))?;
+
+    Ok(Some(UpdateManifestDto {
+        version: value
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        notes: value
+            .get("notes")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    }))
 }

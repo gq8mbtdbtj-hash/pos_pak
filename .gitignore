@@ -5,9 +5,13 @@ data/
 .env
 *.zip
 .tools/
+scripts/.release-out/
 
 # Tauri
 src-tauri/target/
+src-tauri/keys/updater.key
+src-tauri/keys/*.key
+!src-tauri/keys/*.pub
 
 # OS
 .DS_Store

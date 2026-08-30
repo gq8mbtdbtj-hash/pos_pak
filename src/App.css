@@ -3576,6 +3576,13 @@ html[data-keyboard-open] .app--mobile .dash-capture-dock {
   line-height: 1.45;
 }
 
+.update-popup__actions {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 860px) {
   .app-body {
     flex-direction: column;

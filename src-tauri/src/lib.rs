@@ -19,6 +19,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             let app_data = app
                 .path()
                 .app_data_dir()
@@ -123,6 +129,7 @@ pub fn run() {
             commands::export_git_config_text,
             commands::import_git_config,
             commands::import_git_config_text,
+            commands::fetch_update_manifest,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

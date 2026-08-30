@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import TitleBar from "./components/TitleBar";
 import UnlockGate from "./components/UnlockGate";
 import DebtReminderPopups from "./components/DebtReminderPopups";
 import SyncFabs from "./components/SyncFabs";
+import UpdatePopup from "./components/UpdatePopup";
 import { ToastHost } from "./components/Toast";
 import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
@@ -16,6 +17,7 @@ import type { VaultStatus } from "./services/api";
 import { isMobile } from "./lib/platform";
 import { refreshLocalReminders } from "./lib/reminders";
 import { useTabSwipe } from "./lib/useTabSwipe";
+import { checkForAppUpdate, type UpdateInfo } from "./lib/appUpdate";
 
 const PAGES = [
   { id: "dashboard", label: "首页", mobile: true },
@@ -30,10 +32,15 @@ type NavPageId = (typeof PAGES)[number]["id"];
 /** 外债挂在记账下，不进主导航 */
 type PageId = NavPageId | "debts";
 
+function dismissKey(version: string) {
+  return `update-prompt-dismissed:${version}`;
+}
+
 function App() {
   const [page, setPage] = useState<PageId>("dashboard");
   const [unlocked, setUnlocked] = useState(false);
   const [, setVaultStatus] = useState<VaultStatus | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const mobile = useMemo(() => isMobile(), []);
 
   const navPages = useMemo(
@@ -54,6 +61,30 @@ function App() {
     active: navActive,
     onChange: setPage,
   });
+
+  useEffect(() => {
+    if (!unlocked) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const info = await checkForAppUpdate();
+        if (cancelled || !info) return;
+        try {
+          if (sessionStorage.getItem(dismissKey(info.latestVersion)) === "1") {
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+        setUpdateInfo(info);
+      } catch {
+        /* offline / no release yet */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [unlocked]);
 
   const renderPage = () => {
     switch (page) {
@@ -76,6 +107,7 @@ function App() {
               setUnlocked(false);
               setVaultStatus(null);
             }}
+            onShowUpdate={(info) => setUpdateInfo(info)}
           />
         );
     }
@@ -89,7 +121,6 @@ function App() {
           onUnlocked={(s) => {
             setVaultStatus(s);
             setUnlocked(true);
-            // Don't block first paint of the app on notification permission / lists.
             void refreshLocalReminders();
           }}
         />
@@ -123,7 +154,6 @@ function App() {
             }`}
             {...(mobile ? tabSwipe : {})}
           >
-            {/* key forces remount when switching tabs — recovers from page render crashes after HMR */}
             <div key={page} className="page-host">
               {renderPage()}
             </div>
@@ -147,6 +177,19 @@ function App() {
             </nav>
           )}
           <DebtReminderPopups enabled={unlocked} />
+          {updateInfo ? (
+            <UpdatePopup
+              info={updateInfo}
+              onDismiss={() => {
+                try {
+                  sessionStorage.setItem(dismissKey(updateInfo.latestVersion), "1");
+                } catch {
+                  /* ignore */
+                }
+                setUpdateInfo(null);
+              }}
+            />
+          ) : null}
           <SyncFabs
             enabled={unlocked}
             dockLift={["dashboard", "tasks", "habits", "finance", "knowledge"].includes(page)}
