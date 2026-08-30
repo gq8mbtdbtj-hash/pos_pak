@@ -63,7 +63,7 @@ process.on("SIGTERM", shutdown);
 run("go", "go", ["run", "./cmd/server"], join(root, "server"), {
   POS_DATA_DIR: process.env.POS_DATA_DIR || join(root, "server", "data", "personal-os"),
 });
-run("vite", npmCmd, ["run", "dev"], root);
+run("vite", npmCmd, ["run", "dev:web"], root);
 
 process.stdout.write(
   "\n  Personal OS (pure-web) dev servers starting…\n" +

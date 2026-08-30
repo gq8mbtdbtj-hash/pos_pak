@@ -13,16 +13,11 @@ import { isMobile } from "../lib/platform";
 import Select from "../components/Select";
 import PageShell from "../components/PageShell";
 import { showToast, type ToastKind } from "../components/Toast";
-import {
-  checkAppUpdateStatus,
-  currentAppVersion,
-  type UpdateInfo,
-} from "../lib/appUpdate";
-import { ANDROID_APK_DOWNLOAD_URL, UPDATE_REPO } from "../lib/updateConfig";
+
+const WEB_VERSION = "0.1.2";
 
 type Props = {
   onLocked?: () => void;
-  onShowUpdate?: (info: UpdateInfo) => void;
 };
 
 type Feedback = { kind: ToastKind; text: string };
@@ -63,7 +58,7 @@ function providerLabel(provider: string): string {
   }
 }
 
-export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
+export default function SettingsPage({ onLocked }: Props) {
   const mobile = isMobile();
   const [panel, setPanel] = useState<Panel>("home");
   const [outputPath, setOutputPath] = useState("");
@@ -87,9 +82,6 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
   const [conflict, setConflict] = useState<SyncPullResult | null>(null);
   const [payday, setPayday] = useState(1);
   const [paydayBusy, setPaydayBusy] = useState(false);
-  const [appVersion, setAppVersion] = useState("…");
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [latestLabel, setLatestLabel] = useState<string | null>(null);
 
   const applyRemotes = (view: SyncRemotesView) => {
     setRemotesView({
@@ -132,33 +124,6 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
   useEffect(() => {
     refresh().catch((e) => showToast("err", errText(e)));
   }, []);
-
-  useEffect(() => {
-    void currentAppVersion().then(setAppVersion);
-  }, []);
-
-  const checkUpdate = async () => {
-    setUpdateBusy(true);
-    try {
-      const result = await checkAppUpdateStatus();
-      if (result.status === "unavailable") {
-        setLatestLabel("检查失败");
-        showToast("err", `检查更新失败：${result.reason}`);
-        return;
-      }
-      if (result.status === "upToDate") {
-        setLatestLabel(`已是最新（${result.currentVersion}）`);
-        showToast("ok", "当前已是最新版本");
-        return;
-      }
-      setLatestLabel(`最新 ${result.info.latestVersion}`);
-      onShowUpdate?.(result.info);
-    } catch (e) {
-      showToast("err", errText(e));
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
 
   const flash = (kind: ToastKind, text: string) => {
     showToast(kind, text);
@@ -619,49 +584,9 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
               <div className="settings-menu__item settings-menu__item--static">
                 <span className="settings-menu__text">
                   <strong>当前版本</strong>
-                  <span className="muted">
-                    v{appVersion}
-                    {latestLabel ? ` · ${latestLabel}` : ""}
-                  </span>
+                  <span className="muted">Web v{WEB_VERSION} · 刷新页面即为最新</span>
                 </span>
               </div>
-              <button
-                type="button"
-                className="settings-menu__item"
-                disabled={updateBusy}
-                onClick={() => void checkUpdate()}
-              >
-                <span className="settings-menu__text">
-                  <strong>查看最新版本</strong>
-                  <span className="muted">
-                    {mobile
-                      ? "有更新时打开 APK 下载页"
-                      : "有更新时可一键安装"}
-                    {" · "}
-                    {UPDATE_REPO}
-                  </span>
-                </span>
-                <span className="settings-menu__chevron" aria-hidden>
-                  ›
-                </span>
-              </button>
-              {mobile ? (
-                <button
-                  type="button"
-                  className="settings-menu__item"
-                  onClick={() => {
-                    window.open(ANDROID_APK_DOWNLOAD_URL, "_blank", "noopener");
-                  }}
-                >
-                  <span className="settings-menu__text">
-                    <strong>打开 APK 下载</strong>
-                    <span className="muted">{ANDROID_APK_DOWNLOAD_URL}</span>
-                  </span>
-                  <span className="settings-menu__chevron" aria-hidden>
-                    ›
-                  </span>
-                </button>
-              ) : null}
             </div>
           </section>
 
