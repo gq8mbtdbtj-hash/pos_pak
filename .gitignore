@@ -13,3 +13,6 @@ server/data/
 # OS
 .DS_Store
 Thumbs.db
+
+# TS build info
+*.tsbuildinfo
