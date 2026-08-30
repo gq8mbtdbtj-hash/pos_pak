@@ -51,8 +51,6 @@ function providerLabel(provider: string): string {
   switch (provider) {
     case "gitee":
       return "Gitee";
-    case "atomgit":
-      return "AtomGit";
     default:
       return "GitHub";
   }
@@ -682,7 +680,7 @@ export default function SettingsPage({ onLocked }: Props) {
           <div className="settings-group__card settings-detail">
             <p className="muted settings-detail__hint">
               通过 GitHub / Gitee 私有仓以 HTTPS+PAT 推拉加密快照（桌面与手机同一路径）。
-              AtomGit 暂未接入。Gitee 空仓默认分支常为 master，请与网页分支名保持一致。
+              Gitee 空仓默认分支常为 master，请与网页分支名保持一致。
             </p>
             <div className="form-col">
               {editingId && (
@@ -704,7 +702,6 @@ export default function SettingsPage({ onLocked }: Props) {
                 options={[
                   { value: "github", label: "GitHub" },
                   { value: "gitee", label: "Gitee" },
-                  { value: "atomgit", label: "AtomGit" },
                 ]}
                 onChange={(provider) => setConfig({ ...config, provider })}
               />

@@ -46,6 +46,10 @@ Ported to the web build:
 - **Backup**: `GET /api/backup/export` (download zip) / `POST /api/backup/import`
   (upload zip). Replaces the desktop path-based flow.
 
-Not ported (follow-ups): public-internet hardening (TLS reverse proxy / rate
-limiting), the AtomGit provider, and the desktop auto-updater (a web app just
-refreshes).
+Multi-profile: each master password is its own encrypted space under
+`<root>/<id>/`; unlock matches by password, and "create a new space" makes
+another independent vault.
+
+Not ported (by design): the desktop auto-updater (a web app just refreshes) and
+"remember password" auto-unlock. The AtomGit sync provider was removed
+(GitHub/Gitee remain).

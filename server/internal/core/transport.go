@@ -12,8 +12,7 @@ import (
 )
 
 // HTTPS Contents API transport for encrypted sync packs (no system git).
-// Ported from services/sync_https.rs. Supports GitHub + Gitee; AtomGit returns
-// a clear unsupported message.
+// Ported from services/sync_https.rs. Supports GitHub + Gitee.
 
 const (
 	manifestPath = "sync/manifest.json"
@@ -44,14 +43,10 @@ func normalizeProvider(provider, repoURL string) string {
 		return p
 	}
 	u := strings.ToLower(repoURL)
-	switch {
-	case strings.Contains(u, "gitee.com"):
+	if strings.Contains(u, "gitee.com") {
 		return "gitee"
-	case strings.Contains(u, "atomgit.com"):
-		return "atomgit"
-	default:
-		return "github"
 	}
+	return "github"
 }
 
 func parseOwnerRepo(repoURL string) (string, string, error) {
@@ -75,9 +70,6 @@ func parseOwnerRepo(repoURL string) (string, string, error) {
 
 func parseRemote(r SyncRemoteConfig) (remoteRepo, error) {
 	provider := normalizeProvider(r.Provider, r.RepoURL)
-	if provider == "atomgit" {
-		return remoteRepo{}, errf("AtomGit 暂未接入 HTTPS Contents API，请使用 GitHub 或 Gitee 私有仓")
-	}
 	owner, name, err := parseOwnerRepo(r.RepoURL)
 	if err != nil {
 		return remoteRepo{}, err

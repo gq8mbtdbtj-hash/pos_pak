@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,11 @@ import (
 )
 
 const sessionCookie = "pos_session"
+
+func init() {
+	// Serve the PWA manifest with the correct type (Go doesn't know it by default).
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 // Options tune public-exposure behavior.
 type Options struct {
