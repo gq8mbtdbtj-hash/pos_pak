@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, Goal, GoalDetail, HabitWithStats } from "../services/api";
 import InputDock from "../components/InputDock";
+import DockDateField from "../components/DockDateField";
 import { toastErr } from "../components/Toast";
 
 type Segment = "habits" | "goals";
@@ -416,16 +417,12 @@ export default function HabitsPage() {
                 data-no-tab-swipe
               />
               <div className="dock-composer-actions">
-                <label className="dock-date-field">
-                  <span>截止</span>
-                  <input
-                    type="date"
-                    value={milestoneDue}
-                    onChange={(e) => setMilestoneDue(e.target.value)}
-                    aria-label="里程碑截止日期"
-                    data-no-tab-swipe
-                  />
-                </label>
+                <DockDateField
+                  label="截止"
+                  value={milestoneDue}
+                  onChange={setMilestoneDue}
+                  ariaLabel="里程碑截止日期"
+                />
                 <button className="btn" type="button" onClick={addMilestone}>
                   添加
                 </button>
@@ -442,16 +439,12 @@ export default function HabitsPage() {
                 data-no-tab-swipe
               />
               <div className="dock-composer-actions">
-                <label className="dock-date-field">
-                  <span>目标日</span>
-                  <input
-                    type="date"
-                    value={goalDate}
-                    onChange={(e) => setGoalDate(e.target.value)}
-                    aria-label="目标日期"
-                    data-no-tab-swipe
-                  />
-                </label>
+                <DockDateField
+                  label="目标日"
+                  value={goalDate}
+                  onChange={setGoalDate}
+                  ariaLabel="目标日期"
+                />
                 <button className="btn" type="button" onClick={createGoal}>
                   添加
                 </button>
