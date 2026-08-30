@@ -130,7 +130,8 @@ npm run start          # = 构建 dist 再由 Go 托管
 ## 部署（树莓派 / 公网）
 
 - 🇨🇳 **中国用户三步上手**（免费、好维护）：见 [`docs/quickstart-cn.md`](./docs/quickstart-cn.md)
-  （树莓派 systemd + Tailscale/花生壳 + Gitee 加密同步；国内镜像已预置）。
+  （树莓派 systemd + 远程访问 + Gitee 加密同步；国内镜像已预置）。
+- 📱 **公网可用、手机浏览器直接打开**（免费、无需装 App）：见 [`docs/deploy-oray-public.md`](./docs/deploy-oray-public.md)（花生壳 HTTPS 映射，含端到端变体）。
 - 一键构建部署产物（前端 `dist/` + 交叉编译的服务端二进制，含树莓派 arm64/armv7）：
   ```bash
   npm run release      # 产物在 release/
