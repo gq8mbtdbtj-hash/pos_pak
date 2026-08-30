@@ -76,9 +76,16 @@
 - [ ] 可选 **HTTP Basic Auth** / 允许来源细化 / 可选 per-IP 限流。
 - [ ] `phddns` 开机自启 systemd 示例（花生壳客户端）。
 
-### P4 · 性能/树莓派（可选）
+### P4 · 部署更省心（已部分落地）
+- [x] **Docker 一键运行**（`docker compose up -d`，免装 Go/Node）。
+- [x] **免费云模板**（Fly.io，`deploy/fly.toml.example`）。
 - [ ] 前端按需分包，降低首屏体积（当前 gzip≈136KB，够用）。
-- [ ] 针对低配树莓派的运行参数建议。
+
+### P5 · 纯浏览器 · 无服务器（较大改造，规划）
+目标：应用整个跑在浏览器里、数据存本地（IndexedDB/OPFS）、静态文件挂免费静态托管（GitHub/Cloudflare Pages），iPhone 直接免费用、无需任何后台。
+- 方案：把 `internal/core` 编译为 WASM 在浏览器内运行（复用现有 Go 逻辑），或 TS 重写；DB 用浏览器内 SQLite（sql.js/wa-sqlite）+ 把加密后的 `.enc` 存 IndexedDB。
+- 风险：modernc SQLite 的 js/wasm 支持不确定；浏览器直连 Gitee 的 CORS 可能受限（GitHub 相对可行）。
+- 现状：应用已是 PWA（可添加到主屏、外壳离线）；此项为"本地数据 + 无后端"的后续方向。
 
 ### 明确不做（范围外）
 - 零知识（服务端解锁期间可见明文，与桌面一致的模型）。

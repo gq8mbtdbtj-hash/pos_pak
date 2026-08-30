@@ -1,0 +1,16 @@
+# 一条命令跑起来：docker compose up -d
+# 打开 http://localhost:8787 （同 WiFi 手机用 http://<本机IP>:8787）
+services:
+  personal-os:
+    build: .
+    image: personal-os-web
+    container_name: personal-os
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data          # 数据持久化到当前目录的 data/
+    environment:
+      - TZ=Asia/Shanghai
+      # 若前面套了反代/隧道对外出 HTTPS（如花生壳 HTTPS），取消下一行注释：
+      # - POS_SECURE_COOKIE=1
+    restart: unless-stopped

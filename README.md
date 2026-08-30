@@ -129,9 +129,11 @@ npm run start          # = 构建 dist 再由 Go 托管
 
 ## 部署（树莓派 / 公网）
 
-- 🇨🇳 **中国用户三步上手**（免费、好维护）：见 [`docs/quickstart-cn.md`](./docs/quickstart-cn.md)
-  （树莓派 systemd + 远程访问 + Gitee 加密同步；国内镜像已预置）。
-- 📱 **公网可用、手机浏览器直接打开**（免费、无需装 App）：见 [`docs/deploy-oray-public.md`](./docs/deploy-oray-public.md)（花生壳 HTTPS 映射，含端到端变体）。
+- 📱 **免费让 iPhone/手机用起来（不用买服务器）**：见 [`docs/deploy-free-iphone.md`](./docs/deploy-free-iphone.md)
+  （用你已有的电脑一条 `docker compose up -d` + 免费花生壳，或免费云 Fly.io；iPhone「添加到主屏」当 App）。
+- 🐳 **一条命令跑起来**（免装 Go/Node）：`docker compose up -d` → 打开 `http://localhost:8787`。
+- 🇨🇳 **中国用户三步上手**（免费、好维护）：见 [`docs/quickstart-cn.md`](./docs/quickstart-cn.md)。
+- 📱 **公网可用、手机浏览器直接打开**：见 [`docs/deploy-oray-public.md`](./docs/deploy-oray-public.md)（花生壳 HTTPS）。
 - 一键构建部署产物（前端 `dist/` + 交叉编译的服务端二进制，含树莓派 arm64/armv7）：
   ```bash
   npm run release      # 产物在 release/
