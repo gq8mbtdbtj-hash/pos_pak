@@ -7,6 +7,93 @@ import (
 // Dispatch routes a gated RPC command (session already validated) to its service.
 // Argument shapes mirror src/services/api.ts exactly (contract-first).
 func (a *App) Dispatch(command string, raw json.RawMessage) (any, error) {
+	// App-level commands that manage their own locking / DB lifecycle (sync, git
+	// config transfer). Everything else runs against a session snapshot below.
+	switch command {
+	case "sync_list_remotes":
+		return a.SyncListRemotes()
+	case "sync_get_config":
+		return a.SyncGetConfig()
+	case "sync_upsert_remote":
+		var b struct {
+			ID       *string `json:"id"`
+			Label    *string `json:"label"`
+			Provider string  `json:"provider"`
+			RepoURL  string  `json:"repoUrl"`
+			Username string  `json:"username"`
+			Branch   string  `json:"branch"`
+			Pat      *string `json:"pat"`
+		}
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.UpsertRemote(strOr(b.ID, ""), strOr(b.Label, ""), b.Provider, b.RepoURL, b.Username, b.Branch, b.Pat)
+	case "sync_delete_remote":
+		var b struct{ ID string `json:"id"` }
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.DeleteRemote(b.ID)
+	case "sync_set_default_remote":
+		var b struct{ ID string `json:"id"` }
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.SetDefaultRemote(b.ID)
+	case "sync_set_config":
+		var b struct {
+			Provider string  `json:"provider"`
+			RepoURL  string  `json:"repoUrl"`
+			Username string  `json:"username"`
+			Branch   string  `json:"branch"`
+			Pat      *string `json:"pat"`
+		}
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.SetSyncConfig(b.Provider, b.RepoURL, b.Username, b.Branch, b.Pat)
+	case "sync_test_connection":
+		var b struct {
+			Provider *string `json:"provider"`
+			RepoURL  *string `json:"repoUrl"`
+			Username *string `json:"username"`
+			Branch   *string `json:"branch"`
+			Pat      *string `json:"pat"`
+			RemoteID *string `json:"remoteId"`
+		}
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.TestConnection(TestConnDraft{Provider: b.Provider, RepoURL: b.RepoURL, Username: b.Username, Branch: b.Branch, Pat: b.Pat, RemoteID: b.RemoteID})
+	case "sync_pull":
+		return a.SyncPull()
+	case "sync_push":
+		return a.SyncPush()
+	case "sync_resolve_commit":
+		return nil, errf("当前为 HTTPS 快照同步，无需选择提交；请使用「立即拉取 / 立即推送」")
+	case "export_git_config_text":
+		var b struct{ TransferPassword string `json:"transferPassword"` }
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.ExportGitConfigText(b.TransferPassword)
+	case "import_git_config_text":
+		var b struct {
+			BundleText       string `json:"bundleText"`
+			TransferPassword string `json:"transferPassword"`
+		}
+		if err := decode(raw, &b); err != nil {
+			return nil, err
+		}
+		return a.ImportGitConfigText(b.BundleText, b.TransferPassword)
+	case "export_git_config", "import_git_config":
+		return nil, errf("Web 版请使用「复制/粘贴加密配置」文本（无需文件路径）")
+	case "export_backup", "import_backup":
+		return nil, errf("Web 版备份请使用设置页的「下载备份 / 上传恢复」按钮")
+	case "fetch_update_manifest", "app_prepare_exit":
+		return nil, nil
+	}
+
 	var result any
 	err := a.withSession(func(s *session) error {
 		r, e := dispatchSession(s, command, raw)
@@ -467,23 +554,6 @@ func dispatchSession(s *session, command string, raw json.RawMessage) (any, erro
 			limit = *a.Limit
 		}
 		return newSearchService(db).search(a.Query, limit)
-
-	// ---- sync (read views ok; mutations/transfer not yet in web build) ----
-	case "sync_list_remotes":
-		return syncRemotesView(s.vault), nil
-	case "sync_get_config":
-		return syncGetConfigView(s.vault), nil
-	case "sync_upsert_remote", "sync_delete_remote", "sync_set_default_remote",
-		"sync_set_config", "sync_test_connection", "sync_pull", "sync_push", "sync_resolve_commit":
-		return nil, errf("Web 版暂未接入 Git 同步（仅同 WiFi 局域网访问）。桌面端可继续使用同步。")
-	case "export_backup", "import_backup":
-		return nil, errf("Web 版备份改为浏览器下载/上传，暂未接入；请在桌面端导出。")
-	case "export_git_config", "export_git_config_text", "import_git_config", "import_git_config_text":
-		return nil, errf("Web 版暂未接入 Git 配置迁移。")
-	case "fetch_update_manifest":
-		return nil, nil
-	case "app_prepare_exit":
-		return nil, nil
 
 	default:
 		return nil, errf("未知命令：%s", command)

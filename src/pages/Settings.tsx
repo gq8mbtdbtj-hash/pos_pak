@@ -61,8 +61,6 @@ function providerLabel(provider: string): string {
 export default function SettingsPage({ onLocked }: Props) {
   const mobile = isMobile();
   const [panel, setPanel] = useState<Panel>("home");
-  const [outputPath, setOutputPath] = useState("");
-  const [importPath, setImportPath] = useState("");
   const [gitBundlePath, setGitBundlePath] = useState("");
   const [gitBundleText, setGitBundleText] = useState("");
   const [gitTransferPw, setGitTransferPw] = useState("");
@@ -110,18 +108,6 @@ export default function SettingsPage({ onLocked }: Props) {
   };
 
   useEffect(() => {
-    if (!mobile && !gitBundlePath) {
-      setGitBundlePath("C:\\Users\\ikjm\\Desktop\\personal-os-git.posgit");
-    }
-  }, [mobile, gitBundlePath]);
-
-  useEffect(() => {
-    if (!mobile && !outputPath) {
-      setOutputPath("C:\\Users\\ikjm\\Desktop\\personal-os-backup.zip");
-    }
-  }, [mobile, outputPath]);
-
-  useEffect(() => {
     refresh().catch((e) => showToast("err", errText(e)));
   }, []);
 
@@ -156,23 +142,28 @@ export default function SettingsPage({ onLocked }: Props) {
   };
 
   const exportData = async () => {
-    if (!outputPath.trim()) {
-      flash("err", "请输入导出路径");
-      return;
-    }
     try {
-      await api.exportBackup(outputPath);
-      flash("ok", "备份已导出");
+      const res = await fetch("/api/backup/export", { credentials: "include" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `导出失败 (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "personal-os-backup.zip";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      flash("ok", "备份已下载");
     } catch (e) {
       flash("err", errText(e));
     }
   };
 
-  const importData = async () => {
-    if (!importPath.trim()) {
-      flash("err", "请输入导入路径");
-      return;
-    }
+  const importData = async (file: File) => {
     if (
       !window.confirm(
         "导入将覆盖当前档案中的数据库与知识库，此操作不可撤销。是否继续？",
@@ -181,7 +172,15 @@ export default function SettingsPage({ onLocked }: Props) {
       return;
     }
     try {
-      await api.importBackup(importPath);
+      const res = await fetch("/api/backup/import", {
+        method: "POST",
+        credentials: "include",
+        body: file,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `导入失败 (${res.status})`);
+      }
       flash("ok", "备份已导入，页面将刷新");
       setTimeout(() => window.location.reload(), 600);
     } catch (e) {
@@ -818,42 +817,28 @@ export default function SettingsPage({ onLocked }: Props) {
         <section className="settings-group">
           <div className="settings-group__card settings-detail">
             <p className="muted settings-detail__hint">
-              {mobile
-                ? "导出 / 导入本机 SQLite 与知识库（ZIP）。请填写应用可写的绝对路径；导入会覆盖当前档案，请先确认路径无误。"
-                : "导出 / 导入本机 SQLite 与知识库（ZIP）。路径需为可读写的本地文件；导入会覆盖当前档案，建议先导出一份再操作。"}
+              导出 / 导入本机 SQLite 与知识库（ZIP）。导出通过浏览器下载，导入选择本地
+              ZIP 文件上传；导入会覆盖当前档案，建议先导出一份再操作。
             </p>
             <div className="form-col">
               <label className="muted">导出</label>
               <div className="form-row">
-                <input
-                  placeholder={
-                    mobile
-                      ? "导出路径（设备可写绝对路径）"
-                      : "导出路径，例如 C:\\Users\\you\\backup.zip"
-                  }
-                  value={outputPath}
-                  onChange={(e) => setOutputPath(e.target.value)}
-                  style={{ flex: 1 }}
-                />
                 <button className="btn" onClick={exportData}>
-                  导出
+                  下载备份 ZIP
                 </button>
               </div>
               <label className="muted">导入</label>
               <div className="form-row">
                 <input
-                  placeholder={
-                    mobile
-                      ? "导入路径（ZIP 绝对路径）"
-                      : "导入路径，例如 C:\\Users\\you\\backup.zip"
-                  }
-                  value={importPath}
-                  onChange={(e) => setImportPath(e.target.value)}
+                  type="file"
+                  accept=".zip,application/zip"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void importData(f);
+                    e.target.value = "";
+                  }}
                   style={{ flex: 1 }}
                 />
-                <button className="btn btn-ghost" onClick={importData}>
-                  导入
-                </button>
               </div>
             </div>
           </div>

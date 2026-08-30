@@ -626,11 +626,6 @@ export const api = {
   search: (query: string, limit?: number) =>
     invoke<SearchResult[]>("search_query", { query, limit }),
 
-  exportBackup: (outputPath: string) =>
-    invoke<void>("export_backup", { outputPath }),
-  importBackup: (inputPath: string) =>
-    invoke<void>("import_backup", { inputPath }),
-
   vaultStatus: () => invoke<VaultStatus>("vault_status"),
   vaultTryAutoUnlock: () => invoke<VaultStatus>("vault_try_auto_unlock"),
   vaultInit: (password: string) => invoke<VaultStatus>("vault_init", { password }),

@@ -30,6 +30,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/rpc/", s.handleRPC)
+	mux.HandleFunc("/api/backup/export", s.handleBackupExport)
+	mux.HandleFunc("/api/backup/import", s.handleBackupImport)
 	mux.HandleFunc("/", s.handleStatic)
 	return withCORS(mux)
 }
@@ -154,6 +156,45 @@ func (s *Server) setCookie(w http.ResponseWriter, tok string) {
 
 func (s *Server) clearCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
+}
+
+// handleBackupExport streams an unencrypted zip of the working data (auth required).
+func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
+	if !s.authorized(r) {
+		writeErr(w, http.StatusUnauthorized, errors.New("vault locked"))
+		return
+	}
+	data, err := s.app.ExportBackupZip()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="personal-os-backup.zip"`)
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+// handleBackupImport restores from an uploaded zip (raw body; auth required).
+func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
+	if !s.authorized(r) {
+		writeErr(w, http.StatusUnauthorized, errors.New("vault locked"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 512<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.app.ImportBackupZip(body); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleStatic serves the built SPA with index.html fallback (production mode).

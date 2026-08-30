@@ -34,8 +34,18 @@ go run ./cmd/server            # listens on 0.0.0.0:8787
 In production the server also serves the built Vite `dist/` (SPA fallback). In
 development, Vite serves the UI and proxies `/api` to this server.
 
-## Not yet ported to web
+## Desktop parity
 
-Git pack sync, Git-config transfer bundles, path-based backup import/export, and
-the desktop auto-updater return an explicit "not available in web build" error.
-These are network/desktop-specific and tracked as follow-ups.
+Ported to the web build:
+
+- **Encrypted Git sync** (`internal/core/{pack,transport,sync}.go`): GitHub/Gitee
+  Contents API push/pull of AES-256-GCM encrypted packs (SQLite + knowledge),
+  same crypto parameters as the desktop app so packs interoperate.
+- **Cross-device Git-config transfer** (`gitconfig.go`): export/import an encrypted
+  text bundle (transfer password) that carries remotes + the sync key.
+- **Backup**: `GET /api/backup/export` (download zip) / `POST /api/backup/import`
+  (upload zip). Replaces the desktop path-based flow.
+
+Not ported (follow-ups): public-internet hardening (TLS reverse proxy / rate
+limiting), the AtomGit provider, and the desktop auto-updater (a web app just
+refreshes).

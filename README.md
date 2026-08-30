@@ -91,12 +91,21 @@ npm run start          # = 构建 dist 再由 Go 托管
 
 `POST /api/rpc/{command}`，请求体即原 `invoke(name, args)` 的参数对象，响应即原返回值；
 未解锁时返回 `401`。解锁/初始化成功后颁发 HttpOnly 会话 Cookie（`pos_session`）。
-`GET /api/health` 为健康检查。详见 [`server/README.md`](./server/README.md)。
+`GET /api/health` 为健康检查；备份走 `GET /api/backup/export`（下载 ZIP）与
+`POST /api/backup/import`（上传 ZIP）。详见 [`server/README.md`](./server/README.md)。
+
+## 桌面能力对齐（已移植）
+
+- **加密同步**：GitHub / Gitee 私有仓（Contents API）加密包 `拉 / 推`；加密参数（Argon2id、
+  AES-256-GCM、分密钥）与旧桌面版一致，同步包可与桌面互通。设置页「配置新建」填仓库
+  HTTPS 地址 + PAT + 分支即可，左下角浮标手动同步。
+- **跨设备配置迁移**：在一台设备「配置同步」里设传输密码并「复制加密配置」，到另一台
+  粘贴该文本 + 同一传输密码导入（含同步密钥；主密码可不同）。
+- **备份**：设置页「备份」下载 ZIP / 上传 ZIP 恢复（覆盖当前档案）。
 
 ## 暂未接入（后续）
 
-Git 加密包同步、Git 配置迁移、路径式本地备份导入导出、公网暴露加固（花生壳 / TLS 反代）。
-相关命令当前返回明确的「Web 版暂不支持」提示。
+公网暴露加固（花生壳 / TLS 反代、限速）、AtomGit provider。
 
 ## 规范
 

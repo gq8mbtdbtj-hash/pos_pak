@@ -234,7 +234,7 @@ func (a *App) ChangePassword(oldPassword, newPassword string) (VaultStatus, stri
 	if len(newPassword) < 8 {
 		return VaultStatus{}, "", errors.New("新主密码至少 8 位")
 	}
-	v, _, err := unlockVault(a.dataDir, oldPassword)
+	v, oldKeys, err := unlockVault(a.dataDir, oldPassword)
 	if err != nil {
 		return VaultStatus{}, "", err
 	}
@@ -249,6 +249,14 @@ func (a *App) ChangePassword(oldPassword, newPassword string) (VaultStatus, stri
 	}
 	newKeys := crypto.DeriveKeysSplit(newPassword, salt, syncSalt)
 	newKeys.Sync = oldSync
+	// Re-encrypt stored remote PATs (wrapped with the old vault key) under the new one.
+	for i := range v.Remotes {
+		if token, ok, derr := decryptRemotePat(v.Remotes[i], oldKeys.Vault); derr == nil && ok {
+			if err := encryptPatIntoRemote(&v.Remotes[i], newKeys.Vault, token); err != nil {
+				return VaultStatus{}, "", err
+			}
+		}
+	}
 	wrapped, err := crypto.Encrypt(newKeys.Vault, oldSync[:])
 	if err != nil {
 		return VaultStatus{}, "", err
