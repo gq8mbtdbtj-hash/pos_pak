@@ -1,0 +1,30 @@
+---
+description: Force UTF-8 for all file writes; avoid PowerShell/ACP mojibake
+alwaysApply: true
+---
+
+# UTF-8 encoding (Windows)
+
+This repo and Cursor are configured for **UTF-8**. Console code page 936 (GBK) has previously corrupted Chinese in `Habits.tsx` and similar files.
+
+## Hard rules for agents
+
+1. **Never** write Chinese (or any non-ASCII) via PowerShell `Set-Content` / `Out-File` / here-strings that go through the shell ACP.
+2. Prefer **cmd** (`cmd /c`) over PowerShell for shell tasks on Windows when possible.
+3. When creating/editing source containing Chinese:
+   - Prefer the editor/patch tools if they preserve UTF-8; **verify** after write.
+   - If verification fails (mojibake / `???` / `UnicodeDecodeError`), rewrite with:
+     `python -c` or a short `.py` helper that uses `Path.write_text(..., encoding="utf-8")` and only ASCII in the shell command (put Chinese as `\uXXXX` escapes inside the `.py` file).
+4. After any Chinese edit, verify:
+   `python -c "open(r'PATH',encoding='utf-8').read(); print('ok')"`
+   and that a known Chinese substring is present.
+5. Do not re-encode existing UTF-8 files as GBK/CP936.
+
+## Project config already set
+
+- `.editorconfig` → `charset = utf-8`
+- `.gitattributes` → `working-tree-encoding=UTF-8` for source
+- `.vscode/settings.json` → `files.encoding: utf8`, default terminal **Command Prompt** with `chcp 65001`
+- Terminal env: `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`
+
+See `docs/encoding.md` for enabling Windows system-wide UTF-8 (optional but recommended).

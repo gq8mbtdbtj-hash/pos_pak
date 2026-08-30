@@ -8,7 +8,7 @@
 }
 
 .app--mobile {
-  /* Fill the WebView; native IME padding shrinks WebView above the keyboard. */
+  /* Fill the layout; MainActivity pads R.id.content by IME so height sits above keyboard. */
   position: relative;
   left: auto;
   right: auto;
@@ -305,6 +305,83 @@
   font-size: 0.8rem;
   color: var(--muted, #667);
   min-height: 1.1em;
+}
+
+/* Multi-field composer: mode → title → date+submit (button always visible) */
+.dash-capture-dock--composer .quick-capture {
+  height: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.dash-capture-dock--composer .dock-segmented {
+  width: 100%;
+  height: auto;
+  align-self: stretch;
+}
+
+.dash-capture-dock--composer .dock-segmented button {
+  flex: 1;
+  height: 2.35rem;
+  padding: 0 0.65rem;
+  font-size: 0.84rem;
+}
+
+.dash-capture-dock--composer .dock-composer-title {
+  width: 100%;
+  height: 2.75rem;
+  min-width: 0;
+}
+
+.dash-capture-dock--composer .dock-composer-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  height: 2.75rem;
+  min-width: 0;
+}
+
+.dash-capture-dock--composer .dock-date-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.55rem 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.dash-capture-dock--composer .dock-date-field > span {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.dash-capture-dock--composer .dock-date-field input[type="date"] {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.dash-capture-dock--composer .dock-date-field input[type="date"]:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.dash-capture-dock--composer .dock-composer-actions .btn {
+  flex-shrink: 0;
+  min-width: 4.75rem;
+  height: 100%;
 }
 
 
@@ -2296,6 +2373,35 @@ html[data-keyboard-open] .app--mobile .toast-host {
   gap: 1rem;
 }
 
+.goal-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.goal-panel-head .section-label {
+  margin: 0;
+}
+
+.dash-capture-dock .dock-segmented {
+  flex-shrink: 0;
+  align-self: stretch;
+  height: 100%;
+}
+
+.dash-capture-dock .dock-segmented button {
+  height: 100%;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+}
+
+.dash-capture-dock .dock-segmented button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .goal-card {
   display: block;
   width: 100%;
@@ -2368,8 +2474,17 @@ html[data-keyboard-open] .app--mobile .toast-host {
 
 .app--mobile .dash-capture-dock {
   margin: 0 -1.75rem 0;
-  /* Clear in-flow bottom nav; when keyboard is open nav hides — see data-keyboard-open */
   padding: 0.55rem 1.75rem 0.65rem;
+}
+
+.app--mobile .dash-capture-dock--composer {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.app--mobile .dash-capture-dock--composer .dock-composer-actions .btn {
+  min-width: 4.25rem;
+  padding: 0 0.85rem;
 }
 
 .app--mobile .bottom-nav {
@@ -2389,8 +2504,17 @@ html[data-keyboard-open] .app--mobile .toast-host {
   backdrop-filter: blur(10px);
 }
 
-/* Keyboard open: keep input dock in the visible area; hide tab bar to free space */
+/*
+ * Keyboard open: keep the tab bar visible (users need it), but compress its
+ * safe-area padding — native content IME pad already lifts the whole chrome.
+ * Only collapse the nav when the dock is focused AND keyboard is open, via
+ * :focus-within on the page host — fallback hide if that is too cramped.
+ */
 html[data-keyboard-open] .app--mobile .bottom-nav {
+  padding-bottom: 0.35rem;
+}
+
+html[data-keyboard-open] .app--mobile:has(.dash-capture-dock :focus) .bottom-nav {
   display: none;
 }
 
@@ -2657,6 +2781,35 @@ html[data-keyboard-open] .app--mobile .dash-capture-dock {
   gap: 1rem;
 }
 
+.goal-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.goal-panel-head .section-label {
+  margin: 0;
+}
+
+.dash-capture-dock .dock-segmented {
+  flex-shrink: 0;
+  align-self: stretch;
+  height: 100%;
+}
+
+.dash-capture-dock .dock-segmented button {
+  height: 100%;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+}
+
+.dash-capture-dock .dock-segmented button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .goal-card {
   display: block;
   width: 100%;
@@ -2696,111 +2849,6 @@ html[data-keyboard-open] .app--mobile .dash-capture-dock {
   background: #2f6b45;
 }
 
-.app--mobile .app-body {
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-.app--mobile .sidebar {
-  display: none;
-}
-
-.app--mobile .main {
-  flex: 1;
-  min-height: 0;
-  padding-bottom: 0;
-  max-width: none;
-  touch-action: pan-y;
-}
-
-.app--mobile .main.main--dock {
-  padding-bottom: 0;
-}
-
-.app--mobile .dash-capture-dock {
-  margin: 0 -1.75rem 0;
-  padding: 0.55rem 1.75rem 0.65rem;
-}
-
-.app--mobile .bottom-nav {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.2rem;
-  position: relative;
-  flex-shrink: 0;
-  left: auto;
-  right: auto;
-  bottom: auto;
-  z-index: 40;
-  padding: 0.4rem 0.35rem calc(0.4rem + var(--sab, env(safe-area-inset-bottom, 0px)));
-  background: rgba(250, 248, 243, 0.97);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -6px 20px rgba(20, 28, 24, 0.06);
-  backdrop-filter: blur(10px);
-}
-
 .app--desktop .bottom-nav {
   display: none;
-}
-
-.app--mobile .bottom-nav button {
-  position: relative;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 0.68rem;
-  line-height: 1.15;
-  padding: 0.55rem 0.12rem 0.45rem;
-  color: #6a736c;
-  border-radius: 10px;
-  font-weight: 500;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.app--mobile .page-title {
-  font-size: 1.55rem;
-}
-
-.app--mobile .page-debts .flow-strip {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.app--mobile .debt-detail-head {
-  flex-wrap: wrap;
-  gap: 0.65rem;
-}
-
-.app--mobile .debt-detail-head h3 {
-  word-break: break-word;
-}
-
-.app--mobile .bottom-nav button.active {
-  color: #f4f7f4;
-  background: #1a221e;
-  font-weight: 700;
-  font-size: 0.72rem;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-}
-
-.app--mobile .bottom-nav button.active::before {
-  content: "";
-  position: absolute;
-  top: 0.2rem;
-  left: 50%;
-  width: 1.1rem;
-  height: 3px;
-  transform: translateX(-50%);
-  border-radius: 2px;
-  background: #3d9b82;
-}
-
-@media (max-width: 860px) {
-  .goal-layout {
-    grid-template-columns: 1fr;
-  }
 }

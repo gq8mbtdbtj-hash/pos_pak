@@ -1,0 +1,37 @@
+{
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
+  "files.eol": "\n",
+  "[bat]": {
+    "files.encoding": "utf8",
+    "files.eol": "\r\n"
+  },
+  "[powershell]": {
+    "files.encoding": "utf8",
+    "files.eol": "\r\n"
+  },
+  "terminal.integrated.defaultProfile.windows": "Command Prompt",
+  "terminal.integrated.profiles.windows": {
+    "Command Prompt": {
+      "path": [
+        "${env:windir}\\Sysnative\\cmd.exe",
+        "${env:windir}\\System32\\cmd.exe"
+      ],
+      "args": ["/K", "chcp 65001 >nul"],
+      "icon": "terminal-cmd"
+    },
+    "PowerShell": {
+      "source": "PowerShell",
+      "args": [
+        "-NoLogo",
+        "-NoExit",
+        "-Command",
+        "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; $OutputEncoding = [Console]::OutputEncoding"
+      ]
+    }
+  },
+  "terminal.integrated.env.windows": {
+    "PYTHONUTF8": "1",
+    "PYTHONIOENCODING": "utf-8"
+  }
+}

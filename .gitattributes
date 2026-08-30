@@ -1,0 +1,16 @@
+# Force UTF-8 text handling; avoid Windows ACP mangling diffs/checkouts
+* text=auto eol=lf
+
+*.{ts,tsx,js,jsx,css,html,json,md,mdc,yml,yaml,toml,rs,py,kt,kts,xml,svg} text eol=lf working-tree-encoding=UTF-8
+*.{bat,cmd} text eol=crlf
+*.ps1 text eol=crlf working-tree-encoding=UTF-8
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.jar binary
+*.woff binary
+*.woff2 binary

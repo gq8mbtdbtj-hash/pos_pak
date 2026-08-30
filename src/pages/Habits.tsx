@@ -4,6 +4,7 @@ import InputDock from "../components/InputDock";
 import { toastErr } from "../components/Toast";
 
 type Segment = "habits" | "goals";
+type GoalDock = "goal" | "milestone";
 
 function habitId(h: HabitWithStats) {
   return h.habit?.id;
@@ -13,45 +14,71 @@ function habitName(h: HabitWithStats) {
   return h.habit?.name ?? "未命名习惯";
 }
 
+function statusLabel(status: Goal["status"]) {
+  if (status === "done") return "已完成";
+  if (status === "paused") return "暂停";
+  return "进行中";
+}
+
 export default function HabitsPage() {
   const [segment, setSegment] = useState<Segment>("habits");
   const [habits, setHabits] = useState<HabitWithStats[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<GoalDetail | null>(null);
+  const [goalDock, setGoalDock] = useState<GoalDock>("goal");
   const [name, setName] = useState("");
   const [goalTitle, setGoalTitle] = useState("");
   const [goalDate, setGoalDate] = useState("");
   const [milestoneTitle, setMilestoneTitle] = useState("");
+  const [milestoneDue, setMilestoneDue] = useState("");
 
   const loadHabits = useCallback(async () => {
     setHabits(await api.habitList());
   }, []);
 
-  const loadGoals = useCallback(async () => {
+  const refreshGoals = useCallback(async (preferId?: string | null) => {
     const list = await api.goalList();
     setGoals(list);
-    if (selectedGoal) {
-      const still = list.find((g) => g.id === selectedGoal.goal.id);
+
+    const wantId = preferId ?? null;
+    if (wantId) {
+      const still = list.find((g) => g.id === wantId);
       if (still) {
         setSelectedGoal(await api.goalDetail(still.id));
-      } else {
-        setSelectedGoal(null);
+        setGoalDock("milestone");
+        return;
       }
     }
-  }, [selectedGoal]);
+
+    setSelectedGoal((prev) => {
+      if (prev && list.some((g) => g.id === prev.goal.id)) {
+        void api.goalDetail(prev.goal.id).then(setSelectedGoal);
+        return prev;
+      }
+      return null;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     try {
-      await Promise.all([loadHabits(), loadGoals()]);
+      await Promise.all([loadHabits(), refreshGoals()]);
     } catch (e) {
       toastErr(String(e));
     }
-  }, [loadHabits, loadGoals]);
+  }, [loadHabits, refreshGoals]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
-  }, []);
+  }, [load]);
+
+  useEffect(() => {
+    if (segment !== "goals") return;
+    if (selectedGoal) {
+      setGoalDock("milestone");
+      return;
+    }
+    setGoalDock("goal");
+  }, [segment, selectedGoal]);
 
   const createHabit = async () => {
     if (!name.trim()) return;
@@ -95,15 +122,24 @@ export default function HabitsPage() {
       });
       setGoalTitle("");
       setGoalDate("");
-      await loadGoals();
-      setSelectedGoal(await api.goalDetail(g.id));
+      await refreshGoals(g.id);
     } catch (e) {
       toastErr(String(e));
     }
   };
 
   const openGoal = async (id: string) => {
-    setSelectedGoal(await api.goalDetail(id));
+    try {
+      setSelectedGoal(await api.goalDetail(id));
+      setGoalDock("milestone");
+    } catch (e) {
+      toastErr(String(e));
+    }
+  };
+
+  const startNewGoal = () => {
+    setSelectedGoal(null);
+    setGoalDock("goal");
   };
 
   const addMilestone = async () => {
@@ -111,8 +147,10 @@ export default function HabitsPage() {
     try {
       const detail = await api.goalAddMilestone(selectedGoal.goal.id, {
         title: milestoneTitle.trim(),
+        dueDate: milestoneDue || undefined,
       });
       setMilestoneTitle("");
+      setMilestoneDue("");
       setSelectedGoal(detail);
       setGoals(await api.goalList());
     } catch (e) {
@@ -121,17 +159,42 @@ export default function HabitsPage() {
   };
 
   const toggleMilestone = async (id: string, done: boolean) => {
-    const detail = await api.goalSetMilestoneDone(id, done);
-    setSelectedGoal(detail);
-    setGoals(await api.goalList());
+    try {
+      const detail = await api.goalSetMilestoneDone(id, done);
+      setSelectedGoal(detail);
+      setGoals(await api.goalList());
+    } catch (e) {
+      toastErr(String(e));
+    }
+  };
+
+  const removeMilestone = async (id: string) => {
+    if (!confirm("确定删除里程碑？")) return;
+    try {
+      const detail = await api.goalDeleteMilestone(id);
+      setSelectedGoal(detail);
+      setGoals(await api.goalList());
+    } catch (e) {
+      toastErr(String(e));
+    }
   };
 
   const removeGoal = async (id: string) => {
-    if (!confirm("确定删除该目标及里程碑？")) return;
-    await api.goalDelete(id);
-    setSelectedGoal(null);
-    await loadGoals();
+    if (!confirm("确定删除此目标及其里程碑？")) return;
+    try {
+      await api.goalDelete(id);
+      setSelectedGoal(null);
+      setGoalDock("goal");
+      await refreshGoals();
+    } catch (e) {
+      toastErr(String(e));
+    }
   };
+
+  const doneCount = selectedGoal
+    ? selectedGoal.milestones.filter((m) => m.done).length
+    : 0;
+  const totalCount = selectedGoal?.milestones.length ?? 0;
 
   return (
     <div className="page page-habits-goals page--with-dock">
@@ -141,7 +204,7 @@ export default function HabitsPage() {
             <p className="eyebrow">Growth</p>
             <h2 className="page-title">习惯与目标</h2>
           </div>
-          <div className="segmented segmented--grow" role="tablist" aria-label="习惯与目标">
+          <div className="segmented segmented--grow" role="tablist" aria-label="切换内容区">
             <button
               type="button"
               role="tab"
@@ -196,13 +259,18 @@ export default function HabitsPage() {
         ) : (
           <>
             <p className="muted hint" style={{ marginBottom: "0.75rem" }}>
-              目标是结果；习惯与任务是过程。可在目标下拆里程碑追赶进度。
+              选择左侧目标查看里程碑；用底部「新目标、里程碑」切换录入。
             </p>
             <div className="goal-layout">
               <section className="panel">
-                <h3 className="section-label">目标列表</h3>
+                <div className="goal-panel-head">
+                  <h3 className="section-label">目标列表 · {goals.length}</h3>
+                  <button type="button" className="btn btn-ghost" onClick={startNewGoal}>
+                    新建目标
+                  </button>
+                </div>
                 {goals.length === 0 ? (
-                  <p className="empty-state compact">暂无目标</p>
+                  <p className="empty-state compact">还没有目标，点「新建目标」或用底部新建</p>
                 ) : (
                   goals.map((g) => (
                     <button
@@ -219,7 +287,7 @@ export default function HabitsPage() {
                         <div className="goal-progress-fill" style={{ width: `${g.progress}%` }} />
                       </div>
                       <div className="muted">
-                        {g.status === "active" ? "进行中" : g.status === "done" ? "已完成" : "搁置"}
+                        {statusLabel(g.status)}
                         {g.targetDate ? ` · 至 ${g.targetDate}` : ""}
                       </div>
                     </button>
@@ -229,7 +297,11 @@ export default function HabitsPage() {
 
               <section className="panel">
                 {!selectedGoal ? (
-                  <p className="empty-state">选择目标查看里程碑</p>
+                  <p className="empty-state">
+                    {goals.length === 0
+                      ? "还没有目标，请先用底部栏新建"
+                      : "在左侧选择一个目标查看详情"}
+                  </p>
                 ) : (
                   <>
                     <div className="debt-detail-head">
@@ -237,6 +309,7 @@ export default function HabitsPage() {
                         <h3>{selectedGoal.goal.title}</h3>
                         <p className="muted">
                           进度 {selectedGoal.goal.progress}%
+                          {totalCount > 0 ? ` · 里程碑 ${doneCount}/${totalCount}` : ""}
                           {selectedGoal.goal.targetDate
                             ? ` · 目标日 ${selectedGoal.goal.targetDate}`
                             : ""}
@@ -246,12 +319,12 @@ export default function HabitsPage() {
                         className="btn btn-ghost danger"
                         onClick={() => removeGoal(selectedGoal.goal.id)}
                       >
-                        删除
+                        删除目标
                       </button>
                     </div>
                     {selectedGoal.milestones.length === 0 ? (
                       <p className="empty-state compact">
-                        暂无里程碑，添加后进度将按完成比例汇总
+                        暂无里程碑，用底部「里程碑」模式添加
                       </p>
                     ) : (
                       selectedGoal.milestones.map((m) => (
@@ -271,6 +344,13 @@ export default function HabitsPage() {
                             </div>
                             {m.dueDate && <div className="muted">截止 {m.dueDate}</div>}
                           </div>
+                          <button
+                            className="btn btn-ghost danger"
+                            type="button"
+                            onClick={() => removeMilestone(m.id)}
+                          >
+                            删除
+                          </button>
                         </div>
                       ))
                     )}
@@ -283,9 +363,9 @@ export default function HabitsPage() {
       </div>
 
       {segment === "habits" ? (
-        <InputDock label="添加习惯">
+        <InputDock label="新建习惯">
           <input
-            placeholder="新习惯，例如：每天阅读 30 分钟"
+            placeholder="例如：每天阅读 30 分钟"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && createHabit()}
@@ -295,38 +375,89 @@ export default function HabitsPage() {
             添加
           </button>
         </InputDock>
-      ) : selectedGoal ? (
-        <InputDock label="添加里程碑">
-          <input
-            placeholder="新里程碑"
-            value={milestoneTitle}
-            onChange={(e) => setMilestoneTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addMilestone()}
-            data-no-tab-swipe
-          />
-          <button className="btn" type="button" onClick={addMilestone}>
-            添加
-          </button>
-        </InputDock>
       ) : (
-        <InputDock label="添加目标">
-          <input
-            placeholder="新目标，例如：年储蓄 10 万"
-            value={goalTitle}
-            onChange={(e) => setGoalTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && createGoal()}
-            data-no-tab-swipe
-          />
-          <input
-            type="date"
-            value={goalDate}
-            onChange={(e) => setGoalDate(e.target.value)}
-            aria-label="目标日期"
-            data-no-tab-swipe
-          />
-          <button className="btn" type="button" onClick={createGoal}>
-            添加
-          </button>
+        <InputDock
+          label={goalDock === "milestone" ? "添加里程碑" : "新建目标"}
+          variant="composer"
+        >
+          {goals.length > 0 && (
+            <div className="segmented dock-segmented" role="tablist" aria-label="录入模式">
+              <button
+                type="button"
+                role="tab"
+                className={goalDock === "goal" ? "active" : ""}
+                aria-selected={goalDock === "goal"}
+                onClick={startNewGoal}
+                data-no-tab-swipe
+              >
+                新目标
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={goalDock === "milestone" ? "active" : ""}
+                aria-selected={goalDock === "milestone"}
+                disabled={!selectedGoal}
+                onClick={() => selectedGoal && setGoalDock("milestone")}
+                data-no-tab-swipe
+              >
+                里程碑
+              </button>
+            </div>
+          )}
+          {goalDock === "milestone" && selectedGoal ? (
+            <>
+              <input
+                className="dock-composer-title"
+                placeholder={`为「${selectedGoal.goal.title}」添加里程碑`}
+                value={milestoneTitle}
+                onChange={(e) => setMilestoneTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addMilestone()}
+                data-no-tab-swipe
+              />
+              <div className="dock-composer-actions">
+                <label className="dock-date-field">
+                  <span>截止</span>
+                  <input
+                    type="date"
+                    value={milestoneDue}
+                    onChange={(e) => setMilestoneDue(e.target.value)}
+                    aria-label="里程碑截止日期"
+                    data-no-tab-swipe
+                  />
+                </label>
+                <button className="btn" type="button" onClick={addMilestone}>
+                  添加
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <input
+                className="dock-composer-title"
+                placeholder="例如：今年读完 10 本"
+                value={goalTitle}
+                onChange={(e) => setGoalTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createGoal()}
+                data-no-tab-swipe
+              />
+              <div className="dock-composer-actions">
+                <label className="dock-date-field">
+                  <span>目标日</span>
+                  <input
+                    type="date"
+                    value={goalDate}
+                    onChange={(e) => setGoalDate(e.target.value)}
+                    aria-label="目标日期"
+                    data-no-tab-swipe
+                  />
+                </label>
+                <button className="btn" type="button" onClick={createGoal}>
+                  添加
+                </button>
+              </div>
+            </>
+          )}
         </InputDock>
       )}
     </div>

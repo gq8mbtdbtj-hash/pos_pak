@@ -13,13 +13,18 @@ import androidx.core.view.WindowInsetsCompat
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/**
+ * Soft-keyboard handling for Android 15+ edge-to-edge (targetSdk 36).
+ *
+ * Pad [android.R.id.content] by IME height so the WebView sits above the keyboard.
+ * While the keyboard is open, expose `--sab: 0` so CSS does not add a second
+ * bottom gap (that empty strip looked like a blank tab bar).
+ */
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
-    // Edge-to-edge + SDK 35+: adjustResize alone will not shrink WebView.
-    // We pad the WebView by IME height so HTML layout sits above the keyboard.
     window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
     WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -28,25 +33,14 @@ class MainActivity : TauriActivity() {
     }
 
     val root = findViewById<ViewGroup>(android.R.id.content)
-    // CSS vars only here — do not pad content (would double with WebView padding).
     ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-      applyInsetsToCss(findWebView(v), insets)
-      insets
-    }
-    ViewCompat.requestApplyInsets(root)
-  }
-
-  override fun onWebViewCreate(webView: WebView) {
-    super.onWebViewCreate(webView)
-
-    ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
       applyImePadding(v, insets)
-      applyInsetsToCss(webView, insets)
+      applyInsetsToCss(findWebView(v), insets)
       insets
     }
 
     ViewCompat.setWindowInsetsAnimationCallback(
-      webView,
+      root,
       object : WindowInsetsAnimationCompat.Callback(
         WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
       ) {
@@ -54,17 +48,26 @@ class MainActivity : TauriActivity() {
           insets: WindowInsetsCompat,
           runningAnimations: MutableList<WindowInsetsAnimationCompat>,
         ): WindowInsetsCompat {
-          applyImePadding(webView, insets)
-          applyInsetsToCss(webView, insets)
+          applyImePadding(root, insets)
+          applyInsetsToCss(findWebView(root), insets)
           return insets
         }
       },
     )
 
+    ViewCompat.requestApplyInsets(root)
+  }
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+      applyInsetsToCss(webView, insets)
+      insets
+    }
     ViewCompat.requestApplyInsets(webView)
   }
 
-  /** Shrink WebView above the soft keyboard (required on Android 15+ edge-to-edge). */
   private fun applyImePadding(target: View, insets: WindowInsetsCompat) {
     val imeBottom = max(insets.getInsets(WindowInsetsCompat.Type.ime()).bottom, 0)
     if (target.paddingBottom != imeBottom) {
@@ -80,31 +83,42 @@ class MainActivity : TauriActivity() {
   private fun applyInsetsToCss(webView: WebView?, insets: WindowInsetsCompat) {
     if (webView == null) return
     val bars = insets.getInsets(
-      WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+      WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
     )
     val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
     val density = resources.displayMetrics.density.coerceAtLeast(0.5f)
 
     val topPx = (max(bars.top, 0) / density).roundToInt()
-    val bottomPx = (max(bars.bottom, 0) / density).roundToInt()
+    val systemBottomPx = (max(bars.bottom, 0) / density).roundToInt()
     val imePx = (max(ime.bottom, 0) / density).roundToInt()
     val leftPx = (max(bars.left, 0) / density).roundToInt()
     val rightPx = (max(bars.right, 0) / density).roundToInt()
-    val navMode = detectNavMode(bottomPx)
-    val keyboardOpen = if (imePx > 72) "1" else ""
+    val navMode = detectNavMode(systemBottomPx)
+
+    val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+    val keyboardOpen = imeVisible && imePx > 100
+    // While IME is up, content is already clear of the system nav — zero --sab
+    // so the dock does not leave a blank strip above the keyboard.
+    val sabPx = if (keyboardOpen) 0 else systemBottomPx
+    val keyboardFlag = if (keyboardOpen) "1" else ""
 
     val script =
       """
       (function(){
         var r = document.documentElement;
         r.style.setProperty('--sat', '${topPx}px');
-        r.style.setProperty('--sab', '${bottomPx}px');
+        r.style.setProperty('--sab', '${sabPx}px');
         r.style.setProperty('--ime', '${imePx}px');
         r.style.setProperty('--sal', '${leftPx}px');
         r.style.setProperty('--sar', '${rightPx}px');
         r.dataset.androidNav = '${navMode}';
-        if ('${keyboardOpen}' === '1') r.dataset.keyboardOpen = '1';
+        if ('${keyboardFlag}' === '1') r.dataset.keyboardOpen = '1';
         else delete r.dataset.keyboardOpen;
+        try {
+          window.dispatchEvent(new CustomEvent('personal-os-ime', {
+            detail: { ime: ${imePx}, open: ${if (keyboardOpen) "true" else "false"} }
+          }));
+        } catch (e) {}
       })();
       """.trimIndent()
     webView.post { webView.evaluateJavascript(script, null) }
@@ -121,7 +135,8 @@ class MainActivity : TauriActivity() {
     return if (bottomInsetDp >= 40) "buttons" else "gesture"
   }
 
-  private fun findWebView(root: View): WebView? {
+  private fun findWebView(root: View?): WebView? {
+    if (root == null) return null
     if (root is WebView) return root
     if (root is ViewGroup) {
       for (i in 0 until root.childCount) {

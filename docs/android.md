@@ -49,7 +49,7 @@ Android 工程已改用腾讯云加速：
 
 ## 系统导航（手势 / 三段式）
 
-`MainActivity` 在全面屏边到边模式下读取 `WindowInsets`：`--sab`/`--sat` 管系统栏；**软键盘**在原生层给 WebView 加 `paddingBottom = ime`（Android 15+ `adjustResize`/`visualViewport` 往往无效）。前端用 `data-keyboard-open` 隐藏底栏，输入条留在文档流底部。改 Kotlin / Manifest 后必须重新编译安装 APK。
+`MainActivity`：软键盘给 `android.R.id.content` 加 `paddingBottom = ime`；打开时 `--sab` 置 `0`（避免输入框与键盘之间多出一条空白，像空的标签栏），并设 `data-keyboard-open` 隐藏底栏。收起键盘后恢复 `--sab` 与底栏。改 Kotlin 后须重装 APK。
 
 ## 跨端同步（不自建后端）
 
