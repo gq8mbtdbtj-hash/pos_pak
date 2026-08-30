@@ -3,13 +3,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export default function TitleBar() {
-  const [version, setVersion] = useState("0.1.0");
+  const [version, setVersion] = useState("0.1.1");
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
     getVersion()
       .then(setVersion)
-      .catch(() => setVersion("0.1.0"));
+      .catch(() => setVersion("0.1.1"));
 
     const win = getCurrentWindow();
     win
