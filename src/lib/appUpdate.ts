@@ -13,6 +13,11 @@ export type UpdateInfo = {
   apkUrl: string;
 };
 
+export type UpdateCheckResult =
+  | { status: "available"; info: UpdateInfo }
+  | { status: "upToDate"; currentVersion: string; latestVersion: string }
+  | { status: "unavailable"; currentVersion: string; reason: string };
+
 type LatestJson = {
   version?: string | null;
   notes?: string | null;
@@ -49,31 +54,61 @@ export async function currentAppVersion(): Promise<string> {
 }
 
 /** Native HTTP — avoids WebView CORS blocking GitHub Release assets. */
-async function fetchLatestManifest(): Promise<LatestJson | null> {
-  try {
-    return await invoke<LatestJson | null>("fetch_update_manifest");
-  } catch {
-    return null;
+async function fetchLatestManifest(): Promise<LatestJson> {
+  const remote = await invoke<LatestJson | null>("fetch_update_manifest");
+  if (!remote?.version) {
+    throw new Error("未获取到远端版本信息（Release / latest.json）");
   }
+  return remote;
+}
+
+/**
+ * Full update check with explicit up-to-date vs fetch-failed.
+ * Prefer this over checkForAppUpdate for Settings UI.
+ */
+export async function checkAppUpdateStatus(): Promise<UpdateCheckResult> {
+  const currentVersion = normalizeVer(await currentAppVersion());
+  let remote: LatestJson;
+  try {
+    remote = await fetchLatestManifest();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    return { status: "unavailable", currentVersion, reason };
+  }
+  const latestVersion = normalizeVer(remote.version ?? "");
+  if (!latestVersion) {
+    return {
+      status: "unavailable",
+      currentVersion,
+      reason: "latest.json 缺少 version 字段",
+    };
+  }
+  if (compareSemver(latestVersion, currentVersion) <= 0) {
+    return { status: "upToDate", currentVersion, latestVersion };
+  }
+  return {
+    status: "available",
+    info: {
+      currentVersion,
+      latestVersion,
+      notes: remote.notes ?? undefined,
+      desktopInstallable: isDesktop(),
+      apkUrl: ANDROID_APK_DOWNLOAD_URL,
+    },
+  };
 }
 
 /**
  * Returns update info when remote version is newer; otherwise null.
- * Desktop may further use @tauri-apps/plugin-updater for install.
+ * Throws when the remote manifest cannot be fetched (do not treat as up-to-date).
  */
 export async function checkForAppUpdate(): Promise<UpdateInfo | null> {
-  const currentVersion = await currentAppVersion();
-  const remote = await fetchLatestManifest();
-  const latestVersion = remote?.version ? normalizeVer(remote.version) : "";
-  if (!latestVersion) return null;
-  if (compareSemver(latestVersion, currentVersion) <= 0) return null;
-  return {
-    currentVersion: normalizeVer(currentVersion),
-    latestVersion,
-    notes: remote?.notes ?? undefined,
-    desktopInstallable: isDesktop(),
-    apkUrl: ANDROID_APK_DOWNLOAD_URL,
-  };
+  const result = await checkAppUpdateStatus();
+  if (result.status === "unavailable") {
+    throw new Error(result.reason);
+  }
+  if (result.status === "upToDate") return null;
+  return result.info;
 }
 
 /** Desktop: download & install via updater plugin, then relaunch. */

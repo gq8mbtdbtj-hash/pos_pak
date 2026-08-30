@@ -14,7 +14,7 @@ import Select from "../components/Select";
 import PageShell from "../components/PageShell";
 import { showToast, type ToastKind } from "../components/Toast";
 import {
-  checkForAppUpdate,
+  checkAppUpdateStatus,
   currentAppVersion,
   type UpdateInfo,
 } from "../lib/appUpdate";
@@ -140,14 +140,19 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
   const checkUpdate = async () => {
     setUpdateBusy(true);
     try {
-      const info = await checkForAppUpdate();
-      if (!info) {
-        setLatestLabel(`已是最新（${appVersion}）`);
+      const result = await checkAppUpdateStatus();
+      if (result.status === "unavailable") {
+        setLatestLabel("检查失败");
+        showToast("err", `检查更新失败：${result.reason}`);
+        return;
+      }
+      if (result.status === "upToDate") {
+        setLatestLabel(`已是最新（${result.currentVersion}）`);
         showToast("ok", "当前已是最新版本");
         return;
       }
-      setLatestLabel(`最新 ${info.latestVersion}`);
-      onShowUpdate?.(info);
+      setLatestLabel(`最新 ${result.info.latestVersion}`);
+      onShowUpdate?.(result.info);
     } catch (e) {
       showToast("err", errText(e));
     } finally {

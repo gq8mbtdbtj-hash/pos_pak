@@ -142,7 +142,10 @@ function log(msg) {
 
 function fail(msg) {
   console.error(`\n错误: ${msg}`);
-  process.exit(1);
+  process.exitCode = 1;
+  const err = new Error(msg);
+  err.logged = true;
+  throw err;
 }
 
 async function promptLine(question, defaultValue = "") {
@@ -270,7 +273,7 @@ function detectPlatformKey(installerPath) {
   return "linux-x86_64";
 }
 
-function findWindowsUpdaterArtifacts() {
+function findWindowsUpdaterArtifacts(version) {
   const bundleRoot = join(ROOT, "src-tauri", "target", "release", "bundle");
   const files = walkFiles(bundleRoot);
   const installers = files.filter((f) => {
@@ -280,19 +283,29 @@ function findWindowsUpdaterArtifacts() {
 
   if (installers.length === 0) {
     fail(
-      `未找到 Windows 安装包。请先运行 npm run tauri build，产物应在:\n  ${bundleRoot}`,
+      `未找到 Windows 安装包。请先运行 npm run tauri build（不要 --skip-build），产物应在:\n  ${bundleRoot}`,
     );
   }
 
-  // Prefer NSIS bundle
-  installers.sort((a, b) => {
+  const matching = version
+    ? installers.filter((f) => basename(f).includes(version))
+    : installers;
+  if (version && matching.length === 0) {
+    fail(
+      `找到的安装包版本与 ${version} 不符（例如仍是 0.1.1）。请去掉 --skip-build 重新打包，或确认 bundle 里已有 ${version} 的 setup.exe。\n  现有: ${installers.map((f) => basename(f)).join(", ")}`,
+    );
+  }
+
+  // Prefer NSIS bundle matching this version
+  const pool = matching.length > 0 ? matching : installers;
+  pool.sort((a, b) => {
     const score = (p) =>
       (p.toLowerCase().includes("nsis") ? 2 : 0) +
       (p.toLowerCase().includes("x64") ? 1 : 0);
     return score(b) - score(a);
   });
 
-  const installer = installers[0];
+  const installer = pool[0];
   const sigCandidates = [`${installer}.sig`, `${installer}.exe.sig`];
   const sigPath = sigCandidates.find((p) => existsSync(p));
   if (!sigPath) {
@@ -321,17 +334,30 @@ function findAndroidApk() {
     "apk",
   );
   const files = walkFiles(apkRoot).filter((f) => f.toLowerCase().endsWith(".apk"));
-  // Never publish debug / androidTest APKs
+  // Never publish debug / androidTest / unsigned APKs
   const releaseApks = files.filter(
+    (f) =>
+      /release/i.test(f) &&
+      !/androidTest|debug|unsigned/i.test(f),
+  );
+  const fallbackUnsigned = files.filter(
     (f) => /release/i.test(f) && !/androidTest|debug/i.test(f),
   );
+  const pool = releaseApks.length > 0 ? releaseApks : fallbackUnsigned;
 
-  const prefer = (pred) => releaseApks.find(pred);
+  const prefer = (pred) => pool.find(pred);
   const apk =
+    prefer((p) => /universal/i.test(p) && !/unsigned/i.test(p)) ??
     prefer((p) => /universal/i.test(p)) ??
     prefer((p) => /arm64/i.test(p)) ??
     prefer((p) => /aarch64/i.test(p)) ??
-    releaseApks.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+    pool.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+
+  if (apk && /unsigned/i.test(apk)) {
+    log(
+      "  警告: 仅找到 unsigned APK。请用 npm run android:build 打正式签名包后再上传。",
+    );
+  }
 
   if (!apk) {
     fail(
@@ -405,7 +431,12 @@ async function githubRequest(token, path, { method = "GET", body, headers = {} }
         : typeof json === "string"
           ? json
           : res.statusText;
-    throw new Error(`GitHub API ${method} ${path} → ${res.status}:\n${detail}`);
+    let extra = "";
+    if (res.status === 401) {
+      extra =
+        "\nToken 无效或已过期。请到 GitHub → Settings → Developer settings → Personal access tokens 新建 PAT（classic: repo），设环境变量 POS_PAK_GITHUB_TOKEN，不要把 token 写在命令行。";
+    }
+    throw new Error(`GitHub API ${method} ${path} → ${res.status}:\n${detail}${extra}`);
   }
   return json;
 }
@@ -415,11 +446,35 @@ async function getRepoInfo(token, repo) {
   return githubRequest(token, `/repos/${owner}/${name}`);
 }
 
+/** True if the default branch already has at least one commit. */
+async function repoHasCommits(token, repo) {
+  const [owner, name] = repo.split("/");
+  try {
+    const commits = await githubRequest(
+      token,
+      `/repos/${owner}/${name}/commits?per_page=1`,
+    );
+    return Array.isArray(commits) && commits.length > 0;
+  } catch (err) {
+    const msg = String(err.message ?? err);
+    // Empty repo: GitHub returns 409 Conflict for the commits list.
+    if (msg.includes("409") || msg.includes("Git Repository is empty")) {
+      return false;
+    }
+    if (msg.includes("404")) return false;
+    throw err;
+  }
+}
+
 /** GitHub Releases require at least one commit to attach a tag. */
 async function ensureRepoHasInitialCommit(token, repo) {
   const [owner, name] = repo.split("/");
   const info = await getRepoInfo(token, repo);
-  if (info.size > 0) return info;
+
+  // Do NOT use info.size — GitHub often reports size:0 for tiny README-only repos.
+  if (await repoHasCommits(token, repo)) {
+    return info;
+  }
 
   log("  发布仓为空，创建初始 README commit（Release 需要至少一个 commit）…");
   const readme = `# Personal OS Releases
@@ -429,14 +484,26 @@ async function ensureRepoHasInitialCommit(token, repo) {
 - \`latest.json\` — 桌面端自动更新清单
 - \`personal-os.apk\` — Android APK
 `;
-  await githubRequest(token, `/repos/${owner}/${name}/contents/README.md`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: "chore: initialize release repository",
-      content: Buffer.from(readme, "utf8").toString("base64"),
-    }),
-  });
+  const body = {
+    message: "chore: initialize release repository",
+    content: Buffer.from(readme, "utf8").toString("base64"),
+    branch: info.default_branch || "main",
+  };
+
+  try {
+    await githubRequest(token, `/repos/${owner}/${name}/contents/README.md`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    // File already exists → repo is not empty; continue.
+    if (String(err.message).includes("422") || String(err.message).includes("409")) {
+      log("  README 已存在，跳过初始化");
+      return getRepoInfo(token, repo);
+    }
+    throw err;
+  }
   log("  ✓ 已初始化仓库");
   return getRepoInfo(token, repo);
 }
@@ -638,7 +705,7 @@ async function main() {
     }
   }
 
-  const win = findWindowsUpdaterArtifacts();
+  const win = findWindowsUpdaterArtifacts(version);
   const signature = readFileSync(win.sigPath, "utf8");
 
   const outDir = join(ROOT, "scripts", ".release-out");
@@ -776,4 +843,9 @@ async function main() {
   }
 }
 
-main().catch((err) => fail(err.message ?? String(err)));
+main().catch((err) => {
+  if (!err?.logged) {
+    console.error(`\n错误: ${err.message ?? String(err)}`);
+  }
+  process.exitCode = 1;
+});
