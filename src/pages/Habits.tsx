@@ -42,7 +42,6 @@ export default function HabitsPage() {
   const [goalTitle, setGoalTitle] = useState("");
   const [goalDate, setGoalDate] = useState("");
   const [goalKind, setGoalKind] = useState<GoalKind>("habit");
-  const [startValue, setStartValue] = useState("");
   const [targetValue, setTargetValue] = useState("");
   const [unit, setUnit] = useState("");
   const [logNote, setLogNote] = useState("");
@@ -92,6 +91,21 @@ export default function HabitsPage() {
     setGoalDock("goal");
   }, [selectedGoal]);
 
+  // Tab switch: never keep a detail that doesn't belong to the active filter.
+  useEffect(() => {
+    setLogNote("");
+    setLogValue("");
+    setMilestoneTitle("");
+    if (goalFilter === "habit" || goalFilter === "checkin" || goalFilter === "plan") {
+      setGoalKind(goalFilter);
+    }
+    setSelectedGoal((prev) => {
+      if (!prev) return null;
+      if (goalFilter === "all") return prev;
+      return normalizeKind(prev.goal.kind) === goalFilter ? prev : null;
+    });
+  }, [goalFilter]);
+
   const filteredGoals = useMemo(() => {
     const rank = (kind: Goal["kind"] | undefined) => {
       const k = normalizeKind(kind);
@@ -110,29 +124,23 @@ export default function HabitsPage() {
     if (!goalTitle.trim()) return;
     try {
       if (goalKind === "checkin") {
-        const start = Number(startValue);
         const target = Number(targetValue);
-        if (!Number.isFinite(start) || !Number.isFinite(target)) {
-          toastErr("目标打卡必须填写开始值与目标值");
-          return;
-        }
-        if (start === target) {
-          toastErr("开始值与目标值不能相同");
+        if (!Number.isFinite(target)) {
+          toastErr("请填写目标值（例如 76）");
           return;
         }
         const g = await api.goalCreate({
           title: goalTitle.trim(),
           targetDate: goalDate || undefined,
           kind: "checkin",
-          startValue: start,
           targetValue: target,
           unit: unit.trim() || undefined,
         });
         setGoalTitle("");
         setGoalDate("");
-        setStartValue("");
         setTargetValue("");
         setUnit("");
+        setGoalFilter("checkin");
         await refreshGoals(g.id);
         return;
       }
@@ -142,6 +150,7 @@ export default function HabitsPage() {
           kind: "habit",
         });
         setGoalTitle("");
+        setGoalFilter("habit");
         await refreshGoals(g.id);
         return;
       }
@@ -152,6 +161,7 @@ export default function HabitsPage() {
       });
       setGoalTitle("");
       setGoalDate("");
+      setGoalFilter("plan");
       await refreshGoals(g.id);
     } catch (e) {
       toastErr(String(e));
@@ -280,10 +290,9 @@ export default function HabitsPage() {
   const stageCount = selectedGoal?.milestones.length ?? 0;
   const checkinCount = selectedGoal?.checkins.length ?? 0;
 
-  const chartStart = selectedGoal?.goal.startValue ?? 0;
-  const chartTarget = selectedGoal?.goal.targetValue ?? 66;
-  const chartCurrent = selectedGoal?.goal.currentValue ?? chartStart;
-  const chartGap = selectedGoal?.goal.gap ?? chartTarget - chartCurrent;
+  const chartTarget = Number(selectedGoal?.goal.targetValue);
+  const chartReady =
+    selectedKind === "checkin" && Number.isFinite(chartTarget);
   const habitStreak = selectedGoal?.goal.streak ?? 0;
 
   return (
@@ -443,7 +452,7 @@ export default function HabitsPage() {
                 className="dock-composer-title"
                 placeholder={
                   goalKind === "checkin"
-                    ? "例如：减重到 65"
+                    ? "例如：减重到 76kg"
                     : goalKind === "habit"
                       ? "例如：每天阅读 30 分钟"
                       : "例如：完成产品改版"
@@ -458,14 +467,6 @@ export default function HabitsPage() {
                   <input
                     type="number"
                     inputMode="decimal"
-                    placeholder="开始值"
-                    value={startValue}
-                    onChange={(e) => setStartValue(e.target.value)}
-                    data-no-tab-swipe
-                  />
-                  <input
-                    type="number"
-                    inputMode="decimal"
                     placeholder="目标值"
                     value={targetValue}
                     onChange={(e) => setTargetValue(e.target.value)}
@@ -477,6 +478,12 @@ export default function HabitsPage() {
                     onChange={(e) => setUnit(e.target.value)}
                     data-no-tab-swipe
                     style={{ maxWidth: "4.5rem" }}
+                  />
+                  <DockDateField
+                    label="截止日"
+                    value={goalDate}
+                    onChange={setGoalDate}
+                    ariaLabel="打卡目标截止日期"
                   />
                   <button className="btn" type="button" onClick={createGoal}>
                     添加
@@ -547,7 +554,13 @@ export default function HabitsPage() {
                     ? ` · 连续 ${g.streak}/66`
                     : ""}
                   {normalizeKind(g.kind) === "checkin" && g.gap != null
-                    ? ` · 差距 ${Number(g.gap).toFixed(Number.isInteger(g.gap) ? 0 : 1)}`
+                    ? ` · ${
+                        g.gap > 0.0001
+                          ? `还差 ${Number(g.gap).toFixed(Number.isInteger(g.gap) ? 0 : 1)}`
+                          : g.gap < -0.0001
+                            ? `超出 ${Number(Math.abs(g.gap)).toFixed(Number.isInteger(g.gap) ? 0 : 1)}`
+                            : "已达目标"
+                      }`
                     : ""}
                   {g.targetDate ? ` · 至 ${g.targetDate}` : ""}
                 </div>
@@ -601,14 +614,18 @@ export default function HabitsPage() {
 
               {selectedKind === "checkin" ? (
                 <>
-                  <CheckinChart
-                    checkins={selectedGoal.checkins}
-                    startValue={chartStart}
-                    targetValue={chartTarget}
-                    unit={selectedGoal.goal.unit}
-                    currentValue={chartCurrent}
-                    gap={chartGap}
-                  />
+                  {chartReady ? (
+                    <CheckinChart
+                      checkins={selectedGoal.checkins}
+                      targetValue={chartTarget}
+                      targetDate={selectedGoal.goal.targetDate}
+                      unit={selectedGoal.goal.unit}
+                    />
+                  ) : (
+                    <p className="empty-state compact">
+                      缺少目标值，请重建该打卡任务（目标如 76 + 单位 kg）
+                    </p>
+                  )}
                   {selectedGoal.checkins.length === 0 ? (
                     <p className="empty-state compact">暂无记录，用底部填写今日实测值</p>
                   ) : (

@@ -3144,15 +3144,39 @@ html[data-keyboard-open] .app--mobile .toast-host {
 .checkin-chart__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem 1rem;
+  gap: 0.45rem 0.9rem;
   font-size: 0.85rem;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.45rem;
+  align-items: baseline;
 }
 
 .checkin-chart__svg {
   width: 100%;
   height: auto;
   display: block;
+}
+
+.checkin-chart__axis-line {
+  stroke: rgba(42, 58, 50, 0.45);
+  stroke-width: 1.25;
+}
+
+.checkin-chart__tick {
+  stroke: rgba(42, 58, 50, 0.45);
+  stroke-width: 1;
+}
+
+.checkin-chart__grid {
+  stroke: rgba(42, 58, 50, 0.08);
+  stroke-width: 1;
+}
+
+.checkin-chart__grid--target {
+  stroke: transparent;
+}
+
+.checkin-chart__grid--start {
+  stroke: transparent;
 }
 
 .checkin-chart__line {
@@ -3163,9 +3187,16 @@ html[data-keyboard-open] .app--mobile .toast-host {
 }
 
 .checkin-chart__target {
-  stroke: #2f6b45;
-  stroke-width: 1.5;
-  stroke-dasharray: 5 4;
+  stroke: #c45c26;
+  stroke-width: 1.6;
+  stroke-dasharray: 6 4;
+  opacity: 0.9;
+}
+
+.checkin-chart__start {
+  stroke: #5a7a6a;
+  stroke-width: 1.2;
+  stroke-dasharray: 3 4;
   opacity: 0.55;
 }
 
@@ -3176,6 +3207,51 @@ html[data-keyboard-open] .app--mobile .toast-host {
 .checkin-chart__axis {
   fill: var(--muted, #6b7a72);
   font-size: 10px;
+}
+
+.checkin-chart__axis--target {
+  fill: #c45c26;
+  font-weight: 600;
+}
+
+.checkin-chart__legend {
+  display: flex;
+  gap: 0.85rem;
+  font-size: 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.checkin-chart__legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  border-top: 2px solid #2f6b45;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.checkin-chart__legend-item--target::before {
+  border-top: 2px dashed #c45c26;
+}
+
+.checkin-chart__legend-item--start::before {
+  border-top: 2px dashed #5a7a6a;
+}
+
+.checkin-chart__legend-item--deadline::before {
+  border-top: 2px dotted #8a5a3a;
+  height: 10px;
+  border-left: 2px dotted #8a5a3a;
+  border-top-style: none;
+  width: 0;
+}
+
+.checkin-chart__deadline {
+  stroke: #8a5a3a;
+  stroke-width: 1.2;
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
 }
 
 .settings-menu__item--static {

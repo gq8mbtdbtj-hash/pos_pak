@@ -29,16 +29,12 @@ impl<'a> GoalService<'a> {
         let kind = GoalKind::from_str(input.kind.as_deref().unwrap_or("plan"));
         let (start_value, target_value, unit) = match kind {
             GoalKind::Checkin => {
-                let start = input
-                    .start_value
-                    .ok_or_else(|| AppError::Other("目标打卡必须填写开始值".into()))?;
                 let target = input
                     .target_value
                     .ok_or_else(|| AppError::Other("目标打卡必须填写目标值".into()))?;
-                if (target - start).abs() < f64::EPSILON {
-                    return Err(AppError::Other("开始值与目标值不能相同".into()));
-                }
-                (Some(start), Some(target), input.unit)
+                // Start is registered from the first check-in; optional at create.
+                let start = input.start_value.filter(|s| (*s - target).abs() >= f64::EPSILON);
+                (start, Some(target), input.unit)
             }
             GoalKind::Habit => (
                 Some(0.0),
@@ -308,7 +304,7 @@ impl<'a> GoalService<'a> {
         self.db.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, goal_id, date, note,
-                        COALESCE(value, CAST(progress AS REAL), 0), created_at
+                        COALESCE(value, CAST(progress AS REAL)), created_at
                  FROM goal_checkins WHERE goal_id = ?1
                  ORDER BY date DESC, created_at DESC",
             )?;
@@ -353,13 +349,17 @@ impl<'a> GoalService<'a> {
                     goal_id,
                     date.format("%Y-%m-%d").to_string(),
                     note,
-                    value.round().clamp(0.0, 100.0) as i32,
+                    // Legacy progress column: do not clamp metric values into 0–100.
+                    0,
                     value,
                     now.to_rfc3339(),
                 ],
             )?;
             Ok(())
         })?;
+        if goal.kind == GoalKind::Checkin {
+            self.sync_start_from_first_checkin(goal_id)?;
+        }
         self.recalc_checkin_progress(goal_id)?;
         self.detail(goal_id)
     }
@@ -378,6 +378,10 @@ impl<'a> GoalService<'a> {
             conn.execute("DELETE FROM goal_checkins WHERE id = ?1", params![checkin_id])?;
             Ok(())
         })?;
+        let kind = self.get(&goal_id)?.kind;
+        if kind == GoalKind::Checkin {
+            self.sync_start_from_first_checkin(&goal_id)?;
+        }
         self.recalc_checkin_progress(&goal_id)?;
         self.detail(&goal_id)
     }
@@ -540,17 +544,48 @@ impl<'a> GoalService<'a> {
                 Ok(())
             }
             GoalKind::Checkin => {
-                let start = goal.start_value.unwrap_or(0.0);
-                let target = goal.target_value.unwrap_or(start + 1.0);
+                let target = match goal.target_value {
+                    Some(t) if t.is_finite() => t,
+                    _ => {
+                        goal.current_value = None;
+                        goal.gap = None;
+                        goal.streak = None;
+                        goal.formed = Some(false);
+                        goal.progress = 0;
+                        return Ok(());
+                    }
+                };
+                let first = self.first_checkin_value(&goal.id)?;
+                let start = match first {
+                    Some(v) => {
+                        goal.start_value = Some(v);
+                        v
+                    }
+                    None => {
+                        goal.current_value = None;
+                        goal.gap = None;
+                        goal.streak = None;
+                        goal.formed = Some(false);
+                        goal.progress = 0;
+                        return Ok(());
+                    }
+                };
                 let current = self
                     .latest_checkin_value(&goal.id)?
                     .unwrap_or(start);
                 goal.current_value = Some(current);
-                goal.gap = Some(target - current);
-                let progress = value_progress(start, target, current);
-                goal.progress = progress;
-                goal.streak = Some(self.calc_streak(&goal.id)?);
-                goal.formed = Some(progress >= 100);
+                let toward = target - start;
+                let remaining = if toward.abs() < f64::EPSILON {
+                    target - current
+                } else if toward > 0.0 {
+                    target - current
+                } else {
+                    current - target
+                };
+                goal.gap = Some(remaining);
+                goal.progress = value_progress(start, target, current);
+                goal.streak = None;
+                goal.formed = Some(goal.progress >= 100);
                 Ok(())
             }
         }
@@ -559,14 +594,49 @@ impl<'a> GoalService<'a> {
     fn latest_checkin_value(&self, goal_id: &str) -> AppResult<Option<f64>> {
         self.db.with_conn(|conn| {
             conn.query_row(
-                "SELECT COALESCE(value, CAST(progress AS REAL), 0)
-                 FROM goal_checkins WHERE goal_id = ?1
+                "SELECT value FROM goal_checkins WHERE goal_id = ?1 AND value IS NOT NULL
                  ORDER BY date DESC, created_at DESC LIMIT 1",
                 params![goal_id],
                 |row| row.get(0),
             )
             .optional()
             .map_err(AppError::from)
+        })
+    }
+
+    fn first_checkin_value(&self, goal_id: &str) -> AppResult<Option<f64>> {
+        self.db.with_conn(|conn| {
+            conn.query_row(
+                "SELECT value FROM goal_checkins WHERE goal_id = ?1 AND value IS NOT NULL
+                 ORDER BY date ASC, created_at ASC LIMIT 1",
+                params![goal_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(AppError::from)
+        })
+    }
+
+    /// Persist start_value from the earliest check-in measurement.
+    fn sync_start_from_first_checkin(&self, goal_id: &str) -> AppResult<()> {
+        let first = self.first_checkin_value(goal_id)?;
+        let now = Utc::now().to_rfc3339();
+        self.db.with_conn(|conn| {
+            match first {
+                Some(v) => {
+                    conn.execute(
+                        "UPDATE goals SET start_value = ?1, updated_at = ?2 WHERE id = ?3",
+                        params![v, now, goal_id],
+                    )?;
+                }
+                None => {
+                    conn.execute(
+                        "UPDATE goals SET start_value = NULL, updated_at = ?1 WHERE id = ?2",
+                        params![now, goal_id],
+                    )?;
+                }
+            }
+            Ok(())
         })
     }
 
@@ -727,12 +797,13 @@ fn map_milestone_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GoalMilestone>
 fn map_checkin_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GoalCheckin> {
     let date: String = row.get(2)?;
     let created: String = row.get(5)?;
+    let value: Option<f64> = row.get(4)?;
     Ok(GoalCheckin {
         id: row.get(0)?,
         goal_id: row.get(1)?,
         date: NaiveDate::parse_from_str(&date, "%Y-%m-%d").unwrap_or_else(|_| Utc::now().date_naive()),
         note: row.get(3)?,
-        value: row.get(4)?,
+        value: value.unwrap_or(f64::NAN),
         created_at: DateTime::parse_from_rfc3339(&created)
             .map(|d| d.with_timezone(&Utc))
             .unwrap_or_else(|_| Utc::now()),

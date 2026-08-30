@@ -17,7 +17,7 @@
 - 根因：模型曾用 progress 兼做完成度与录入
 - 防再发：checkin 存 `value`；progress 由 `(current-start)/(target-start)` 派生；创建强制 start/target
 
-### 2026-08-30 · 习惯培养 vs 目标打卡
-- 现象：统一成单一 `checkin` 后，66 天出勤与起止实测混在一起
-- 根因：产品需要两种打卡语义
-- 防再发：`habit`=出勤/66 天；`checkin`=起止值折线；迁移与 `start=0,target=66` 重分类为 habit
+### 2026-08-30 · 养成 Tab 切换清详情
+- 现象：从打卡切到习惯，右侧仍显示打卡详情
+- 根因：`selectedGoal` 未随 `goalFilter` 清空
+- 防再发：切换筛选 Tab 时清空选中与录入缓存，并同步新建类型
