@@ -9,7 +9,8 @@
     "server": "cd server && go run ./cmd/server",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "start": "npm run build && cd server && go run ./cmd/server"
+    "start": "npm run build && cd server && go run ./cmd/server",
+    "release": "node scripts/build-release.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

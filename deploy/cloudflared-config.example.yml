@@ -1,0 +1,16 @@
+# Cloudflare Tunnel config — public HTTPS with NO open ports / no public IP.
+# Great for home networks behind NAT/CGNAT. See docs/deploy-public-internet.md.
+#
+# Prereqs (one-time):
+#   cloudflared tunnel login
+#   cloudflared tunnel create personal-os          # prints a <TUNNEL_ID>
+#   cloudflared tunnel route dns personal-os os.example.com
+# Then run:  cloudflared tunnel --config deploy/cloudflared-config.example.yml run
+
+tunnel: <TUNNEL_ID>
+credentials-file: /home/pi/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: os.example.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404

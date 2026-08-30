@@ -3,12 +3,15 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"personal-os-server/internal/core"
@@ -16,14 +19,34 @@ import (
 
 const sessionCookie = "pos_session"
 
-// Server wires the App to HTTP: /api/health, /api/rpc/{command}, and static dist/.
-type Server struct {
-	app     *core.App
-	distDir string
+// Options tune public-exposure behavior.
+type Options struct {
+	// SecureCookie marks the session cookie Secure (set when serving HTTPS).
+	SecureCookie bool
+	// AllowedOrigins is an explicit CORS allowlist. The app is same-origin in
+	// both dev (Vite proxy) and prod (Go serves the SPA), so this stays empty by
+	// default — cross-origin browsers are simply blocked, which is safest for a
+	// publicly-exposed instance.
+	AllowedOrigins []string
 }
 
-func New(app *core.App, distDir string) *Server {
-	return &Server{app: app, distDir: distDir}
+// Server wires the App to HTTP: /api/health, /api/rpc/{command}, and static dist/.
+type Server struct {
+	app          *core.App
+	distDir      string
+	secureCookie bool
+	allowed      map[string]bool
+	auth         authLimiter
+}
+
+func New(app *core.App, distDir string, opts Options) *Server {
+	allowed := map[string]bool{}
+	for _, o := range opts.AllowedOrigins {
+		if o = strings.TrimSpace(o); o != "" {
+			allowed[o] = true
+		}
+	}
+	return &Server{app: app, distDir: distDir, secureCookie: opts.SecureCookie, allowed: allowed}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -33,13 +56,65 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/backup/export", s.handleBackupExport)
 	mux.HandleFunc("/api/backup/import", s.handleBackupImport)
 	mux.HandleFunc("/", s.handleStatic)
-	return withCORS(mux)
+	return withSecurityHeaders(s.cors(mux))
 }
 
-func withCORS(next http.Handler) http.Handler {
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// authLimiter throttles unlock/init/change-password to blunt brute force.
+// Single-user self-host: a global failed-attempt counter with exponential
+// backoff is sufficient and avoids per-IP spoofing games.
+type authLimiter struct {
+	mu           sync.Mutex
+	fails        int
+	blockedUntil time.Time
+}
+
+const authFailThreshold = 5
+
+func (l *authLimiter) retryAfter() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if d := time.Until(l.blockedUntil); d > 0 {
+		return d
+	}
+	return 0
+}
+
+func (l *authLimiter) record(success bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if success {
+		l.fails = 0
+		l.blockedUntil = time.Time{}
+		return
+	}
+	l.fails++
+	if l.fails >= authFailThreshold {
+		shift := uint(l.fails - authFailThreshold)
+		if shift > 6 {
+			shift = 6
+		}
+		d := (15 * time.Second) << shift // 15s,30s,1m,2m,4m,8m,16m→cap
+		if d > 15*time.Minute {
+			d = 15 * time.Minute
+		}
+		l.blockedUntil = time.Now().Add(d)
+	}
+}
+
+func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
+		if origin != "" && s.allowed[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
@@ -67,6 +142,17 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 32<<20))
 	raw := json.RawMessage(body)
 
+	// Brute-force protection on password-bearing commands.
+	isAuthCmd := command == "vault_init" || command == "vault_unlock" || command == "vault_change_password"
+	if isAuthCmd {
+		if d := s.auth.retryAfter(); d > 0 {
+			secs := int(d.Seconds()) + 1
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			writeErr(w, http.StatusTooManyRequests, fmt.Errorf("尝试过于频繁，请 %d 秒后再试", secs))
+			return
+		}
+	}
+
 	switch command {
 	case "vault_status":
 		st, err := s.app.Status()
@@ -80,6 +166,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(body, &a)
 		st, tok, err := s.app.Init(a.Password)
+		s.auth.record(err == nil)
 		if err == nil {
 			s.setCookie(w, tok)
 		}
@@ -90,6 +177,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(body, &a)
 		st, tok, err := s.app.Unlock(a.Password)
+		s.auth.record(err == nil)
 		if err == nil {
 			s.setCookie(w, tok)
 		}
@@ -109,6 +197,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(body, &a)
 		st, tok, err := s.app.ChangePassword(a.OldPassword, a.NewPassword)
+		s.auth.record(err == nil)
 		if err == nil {
 			s.setCookie(w, tok)
 		}
@@ -149,6 +238,7 @@ func (s *Server) setCookie(w http.ResponseWriter, tok string) {
 		Value:    tok,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   s.secureCookie,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int((12 * time.Hour).Seconds()),
 	})

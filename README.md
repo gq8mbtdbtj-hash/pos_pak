@@ -117,9 +117,38 @@ npm run start          # = 构建 dist 再由 Go 托管
   粘贴该文本 + 同一传输密码导入（含同步密钥；主密码可不同）。
 - **备份**：设置页「备份」下载 ZIP / 上传 ZIP 恢复（覆盖当前档案）。
 
+## 部署（树莓派 / 公网）
+
+- 一键构建部署产物（前端 `dist/` + 交叉编译的服务端二进制，含树莓派 arm64/armv7）：
+  ```bash
+  npm run release      # 产物在 release/
+  ```
+- **树莓派部署**：见 [`docs/deploy-raspberry-pi.md`](./docs/deploy-raspberry-pi.md)（含 systemd 自启、备份、升级）。
+- **公网加密访问**：见 [`docs/deploy-public-internet.md`](./docs/deploy-public-internet.md)
+  （Cloudflare Tunnel / Caddy 自动 HTTPS / 花生壳 / frp+VPS / Tailscale，含安全清单）。
+- 现成示例配置在 [`deploy/`](./deploy/)：systemd 单元、Caddyfile、cloudflared、frpc。
+
+### 公网安全要点（已内置）
+
+- 全部业务接口解锁前 `401`；**登录爆破退避**（连错 5 次指数级锁定，返回 429）。
+- 静止加密（Argon2id + AES-256-GCM）+ 安全响应头 + 会话 Cookie（HTTPS 下 `Secure`）。
+- **公网必须走 HTTPS**：可用内置 TLS（`POS_TLS_CERT`/`POS_TLS_KEY`）或前置反代/隧道终止 TLS 并设 `POS_SECURE_COOKIE=1`。
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `POS_ADDR` | 监听地址，默认 `0.0.0.0:8787`（走反代/隧道时改 `127.0.0.1:8787`）。 |
+| `POS_DATA_DIR` | 数据目录（默认 `./data/personal-os`）。 |
+| `POS_DIST_DIR` | 生产托管的前端 `dist/` 目录。 |
+| `POS_TLS_CERT` / `POS_TLS_KEY` | 设置后直接以 HTTPS 监听（内置 TLS）。 |
+| `POS_SECURE_COOKIE` | `=1` 给会话 Cookie 加 `Secure`（反代终止 TLS 时用）。 |
+| `POS_ALLOWED_ORIGIN` | 跨域来源白名单（逗号分隔）。默认空 = 仅同源。 |
+| `POS_API_TARGET` | dev 下 Vite 代理目标（默认 `http://127.0.0.1:8787`）。 |
+
 ## 暂未接入（后续）
 
-公网暴露加固（花生壳 / TLS 反代、限速）、AtomGit provider。
+AtomGit 同步 provider。
 
 ## 规范
 

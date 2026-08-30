@@ -1,0 +1,23 @@
+# frp client (frpc) — expose the local server through your own VPS.
+# Put HTTPS termination (e.g. Caddy) on the VPS in front of frps, or use frp's
+# TLS. See docs/deploy-public-internet.md.
+#
+# Run on the Raspberry Pi:  frpc -c deploy/frpc.example.toml
+
+serverAddr = "your.vps.public.ip"
+serverPort = 7000
+# Shared secret configured in frps.toml on the VPS.
+auth.method = "token"
+auth.token = "replace-with-a-long-random-token"
+
+# Encrypt + compress the tunnel between Pi and VPS.
+transport.useEncryption = true
+transport.useCompression = true
+
+[[proxies]]
+name = "personal-os"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8787
+# Reachable as your.vps.public.ip:8787 — front this with TLS on the VPS.
+remotePort = 8787
