@@ -1,13 +1,26 @@
 /**
- * Shared reminder scheduling for desktop + mobile.
- * Uses system notifications when the plugin is available; no forked codepaths.
+ * Shared reminder scheduling for the pure-web build.
+ * Uses the browser Web Notifications API when available and permitted.
  */
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
 import { api } from "../services/api";
+
+async function isPermissionGranted(): Promise<boolean> {
+  return typeof Notification !== "undefined" && Notification.permission === "granted";
+}
+
+async function requestPermission(): Promise<NotificationPermission> {
+  if (typeof Notification === "undefined") return "denied";
+  return Notification.requestPermission();
+}
+
+function sendNotification(payload: { title: string; body: string }): void {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    new Notification(payload.title, { body: payload.body });
+  } catch {
+    /* ignore notification failures */
+  }
+}
 import { daysUntilDue, dueRiskLevel, isDueReminder } from "../components/DebtReminderPopups";
 
 function seenKey(key: string) {

@@ -1,18 +1,19 @@
 node_modules/
 dist/
+release/
 data/
 *.db
 .env
 *.zip
 .tools/
-scripts/.release-out/
 
-# Tauri
-src-tauri/target/
-src-tauri/keys/updater.key
-src-tauri/keys/*.key
-!src-tauri/keys/*.pub
+# Go backend data (unlocked working copy + sealed vault)
+server/data/
 
 # OS
 .DS_Store
 Thumbs.db
+
+# TS build info
+*.tsbuildinfo
+dev-dist/

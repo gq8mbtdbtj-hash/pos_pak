@@ -1,8 +1,38 @@
-import { invoke } from "@tauri-apps/api/core";
 import { detectPlatform } from "../lib/platform";
 
 function clientPlatform() {
   return detectPlatform();
+}
+
+/**
+ * Web transport: the pure-web build talks to the Go backend over HTTP instead
+ * of Tauri's `invoke`. The signature is intentionally identical to
+ * `@tauri-apps/api/core`'s `invoke` so every call site in this file stays the
+ * same. Requests are same-origin (Vite proxies `/api` in dev; the Go server
+ * serves the built app in prod), and the session lives in an HttpOnly cookie.
+ */
+const API_BASE = (import.meta.env?.VITE_API_BASE ?? "").replace(/\/$/, "");
+
+async function invoke<T = unknown>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  const res = await fetch(`${API_BASE}/api/rpc/${command}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(args ?? {}),
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const message =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : `请求失败 (${res.status})`;
+    throw new Error(message);
+  }
+  return data as T;
 }
 
 export interface Task {
@@ -595,11 +625,6 @@ export const api = {
 
   search: (query: string, limit?: number) =>
     invoke<SearchResult[]>("search_query", { query, limit }),
-
-  exportBackup: (outputPath: string) =>
-    invoke<void>("export_backup", { outputPath }),
-  importBackup: (inputPath: string) =>
-    invoke<void>("import_backup", { inputPath }),
 
   vaultStatus: () => invoke<VaultStatus>("vault_status"),
   vaultTryAutoUnlock: () => invoke<VaultStatus>("vault_try_auto_unlock"),

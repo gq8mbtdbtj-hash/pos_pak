@@ -1,0 +1,29 @@
+# Fly.io 免费云部署模板（无需自己开机）。用法见 docs/deploy-free-iphone.md。
+#   fly launch --no-deploy      # 交互式创建 app（会生成自己的 fly.toml，可参考本文件）
+#   fly volumes create data --size 1        # 1GB 持久卷（免费额度内）
+#   fly deploy
+# 把 app 名改成你自己的；primary_region 选离你近的（如 hkg 香港 / nrt 东京 / sin 新加坡）。
+
+app = "your-personal-os"
+primary_region = "hkg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POS_ADDR = "0.0.0.0:8080"
+  POS_DATA_DIR = "/data"
+  POS_DIST_DIR = "/app/dist"
+  POS_SECURE_COOKIE = "1"     # Fly 对外是 HTTPS
+  TZ = "Asia/Shanghai"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"   # 空闲自动停，省额度；有请求自动拉起
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[mounts]]
+  source = "data"
+  destination = "/data"

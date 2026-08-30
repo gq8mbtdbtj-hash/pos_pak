@@ -1,35 +1,32 @@
 {
-  "name": "personal-os",
+  "name": "personal-os-web",
   "private": true,
   "version": "0.1.2",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/web-dev.mjs",
+    "dev:web": "vite",
+    "server": "cd server && go run ./cmd/server",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "android:init": "tauri android init",
-    "android:dev": "tauri android dev",
-    "android:build": "tauri android build",
-    "release:pos-pak": "node scripts/release-pos-pak.mjs"
+    "start": "npm run build && cd server && go run ./cmd/server",
+    "release": "node scripts/build-release.mjs",
+    "icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.4.0",
-    "@tauri-apps/plugin-notification": "^2.3.3",
-    "@tauri-apps/plugin-process": "^2.3.0",
-    "@tauri-apps/plugin-shell": "^2.2.0",
-    "@tauri-apps/plugin-updater": "^2.10.1",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/newsreader": "^5.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-markdown": "^9.0.3",
-    "react-router-dom": "^7.1.5"
+    "react-markdown": "^9.0.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.4.0",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.35.4",
     "typescript": "^5.7.3",
-    "vite": "^6.0.11"
+    "vite": "^6.0.11",
+    "vite-plugin-pwa": "^1.3.0"
   }
 }

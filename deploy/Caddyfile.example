@@ -1,0 +1,17 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# Requires: a domain pointing at this host, and inbound 80/443 reachable.
+# Install Caddy, then: sudo caddy run --config deploy/Caddyfile.example
+#
+# Replace os.example.com with your domain.
+
+os.example.com {
+	encode zstd gzip
+
+	# Optional extra gate in front of the app's own master-password lock.
+	# Generate a hash with: caddy hash-password
+	# basic_auth {
+	#     yourname JDJhJDE0J...replace-with-hash...
+	# }
+
+	reverse_proxy 127.0.0.1:8787
+}

@@ -13,16 +13,11 @@ import { isMobile } from "../lib/platform";
 import Select from "../components/Select";
 import PageShell from "../components/PageShell";
 import { showToast, type ToastKind } from "../components/Toast";
-import {
-  checkAppUpdateStatus,
-  currentAppVersion,
-  type UpdateInfo,
-} from "../lib/appUpdate";
-import { ANDROID_APK_DOWNLOAD_URL, UPDATE_REPO } from "../lib/updateConfig";
+
+const WEB_VERSION = "0.1.2";
 
 type Props = {
   onLocked?: () => void;
-  onShowUpdate?: (info: UpdateInfo) => void;
 };
 
 type Feedback = { kind: ToastKind; text: string };
@@ -56,18 +51,14 @@ function providerLabel(provider: string): string {
   switch (provider) {
     case "gitee":
       return "Gitee";
-    case "atomgit":
-      return "AtomGit";
     default:
       return "GitHub";
   }
 }
 
-export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
+export default function SettingsPage({ onLocked }: Props) {
   const mobile = isMobile();
   const [panel, setPanel] = useState<Panel>("home");
-  const [outputPath, setOutputPath] = useState("");
-  const [importPath, setImportPath] = useState("");
   const [gitBundlePath, setGitBundlePath] = useState("");
   const [gitBundleText, setGitBundleText] = useState("");
   const [gitTransferPw, setGitTransferPw] = useState("");
@@ -87,9 +78,6 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
   const [conflict, setConflict] = useState<SyncPullResult | null>(null);
   const [payday, setPayday] = useState(1);
   const [paydayBusy, setPaydayBusy] = useState(false);
-  const [appVersion, setAppVersion] = useState("…");
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [latestLabel, setLatestLabel] = useState<string | null>(null);
 
   const applyRemotes = (view: SyncRemotesView) => {
     setRemotesView({
@@ -118,47 +106,8 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
   };
 
   useEffect(() => {
-    if (!mobile && !gitBundlePath) {
-      setGitBundlePath("C:\\Users\\ikjm\\Desktop\\personal-os-git.posgit");
-    }
-  }, [mobile, gitBundlePath]);
-
-  useEffect(() => {
-    if (!mobile && !outputPath) {
-      setOutputPath("C:\\Users\\ikjm\\Desktop\\personal-os-backup.zip");
-    }
-  }, [mobile, outputPath]);
-
-  useEffect(() => {
     refresh().catch((e) => showToast("err", errText(e)));
   }, []);
-
-  useEffect(() => {
-    void currentAppVersion().then(setAppVersion);
-  }, []);
-
-  const checkUpdate = async () => {
-    setUpdateBusy(true);
-    try {
-      const result = await checkAppUpdateStatus();
-      if (result.status === "unavailable") {
-        setLatestLabel("检查失败");
-        showToast("err", `检查更新失败：${result.reason}`);
-        return;
-      }
-      if (result.status === "upToDate") {
-        setLatestLabel(`已是最新（${result.currentVersion}）`);
-        showToast("ok", "当前已是最新版本");
-        return;
-      }
-      setLatestLabel(`最新 ${result.info.latestVersion}`);
-      onShowUpdate?.(result.info);
-    } catch (e) {
-      showToast("err", errText(e));
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
 
   const flash = (kind: ToastKind, text: string) => {
     showToast(kind, text);
@@ -191,23 +140,28 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
   };
 
   const exportData = async () => {
-    if (!outputPath.trim()) {
-      flash("err", "请输入导出路径");
-      return;
-    }
     try {
-      await api.exportBackup(outputPath);
-      flash("ok", "备份已导出");
+      const res = await fetch("/api/backup/export", { credentials: "include" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `导出失败 (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "personal-os-backup.zip";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      flash("ok", "备份已下载");
     } catch (e) {
       flash("err", errText(e));
     }
   };
 
-  const importData = async () => {
-    if (!importPath.trim()) {
-      flash("err", "请输入导入路径");
-      return;
-    }
+  const importData = async (file: File) => {
     if (
       !window.confirm(
         "导入将覆盖当前档案中的数据库与知识库，此操作不可撤销。是否继续？",
@@ -216,7 +170,15 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
       return;
     }
     try {
-      await api.importBackup(importPath);
+      const res = await fetch("/api/backup/import", {
+        method: "POST",
+        credentials: "include",
+        body: file,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error || `导入失败 (${res.status})`);
+      }
       flash("ok", "备份已导入，页面将刷新");
       setTimeout(() => window.location.reload(), 600);
     } catch (e) {
@@ -619,53 +581,9 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
               <div className="settings-menu__item settings-menu__item--static">
                 <span className="settings-menu__text">
                   <strong>当前版本</strong>
-                  <span className="muted">
-                    v{appVersion}
-                    {latestLabel ? ` · ${latestLabel}` : ""}
-                  </span>
+                  <span className="muted">Web v{WEB_VERSION} · 刷新页面即为最新</span>
                 </span>
               </div>
-              <button
-                type="button"
-                className="settings-menu__item"
-                disabled={updateBusy}
-                onClick={() => void checkUpdate()}
-              >
-                <span className="settings-menu__text">
-                  <strong>查看最新版本</strong>
-                  <span className="muted">
-                    {mobile
-                      ? "有更新时打开 APK 下载页"
-                      : "有更新时可一键安装"}
-                    {" · "}
-                    {UPDATE_REPO}
-                  </span>
-                </span>
-                <span className="settings-menu__chevron" aria-hidden>
-                  ›
-                </span>
-              </button>
-              {mobile ? (
-                <button
-                  type="button"
-                  className="settings-menu__item"
-                  onClick={() => {
-                    void import("@tauri-apps/plugin-shell").then(({ open }) =>
-                      open(ANDROID_APK_DOWNLOAD_URL).catch((e) =>
-                        showToast("err", errText(e)),
-                      ),
-                    );
-                  }}
-                >
-                  <span className="settings-menu__text">
-                    <strong>打开 APK 下载</strong>
-                    <span className="muted">{ANDROID_APK_DOWNLOAD_URL}</span>
-                  </span>
-                  <span className="settings-menu__chevron" aria-hidden>
-                    ›
-                  </span>
-                </button>
-              ) : null}
             </div>
           </section>
 
@@ -762,7 +680,7 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
           <div className="settings-group__card settings-detail">
             <p className="muted settings-detail__hint">
               通过 GitHub / Gitee 私有仓以 HTTPS+PAT 推拉加密快照（桌面与手机同一路径）。
-              AtomGit 暂未接入。Gitee 空仓默认分支常为 master，请与网页分支名保持一致。
+              Gitee 空仓默认分支常为 master，请与网页分支名保持一致。
             </p>
             <div className="form-col">
               {editingId && (
@@ -784,7 +702,6 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
                 options={[
                   { value: "github", label: "GitHub" },
                   { value: "gitee", label: "Gitee" },
-                  { value: "atomgit", label: "AtomGit" },
                 ]}
                 onChange={(provider) => setConfig({ ...config, provider })}
               />
@@ -897,42 +814,28 @@ export default function SettingsPage({ onLocked, onShowUpdate }: Props) {
         <section className="settings-group">
           <div className="settings-group__card settings-detail">
             <p className="muted settings-detail__hint">
-              {mobile
-                ? "导出 / 导入本机 SQLite 与知识库（ZIP）。请填写应用可写的绝对路径；导入会覆盖当前档案，请先确认路径无误。"
-                : "导出 / 导入本机 SQLite 与知识库（ZIP）。路径需为可读写的本地文件；导入会覆盖当前档案，建议先导出一份再操作。"}
+              导出 / 导入本机 SQLite 与知识库（ZIP）。导出通过浏览器下载，导入选择本地
+              ZIP 文件上传；导入会覆盖当前档案，建议先导出一份再操作。
             </p>
             <div className="form-col">
               <label className="muted">导出</label>
               <div className="form-row">
-                <input
-                  placeholder={
-                    mobile
-                      ? "导出路径（设备可写绝对路径）"
-                      : "导出路径，例如 C:\\Users\\you\\backup.zip"
-                  }
-                  value={outputPath}
-                  onChange={(e) => setOutputPath(e.target.value)}
-                  style={{ flex: 1 }}
-                />
                 <button className="btn" onClick={exportData}>
-                  导出
+                  下载备份 ZIP
                 </button>
               </div>
               <label className="muted">导入</label>
               <div className="form-row">
                 <input
-                  placeholder={
-                    mobile
-                      ? "导入路径（ZIP 绝对路径）"
-                      : "导入路径，例如 C:\\Users\\you\\backup.zip"
-                  }
-                  value={importPath}
-                  onChange={(e) => setImportPath(e.target.value)}
+                  type="file"
+                  accept=".zip,application/zip"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void importData(f);
+                    e.target.value = "";
+                  }}
                   style={{ flex: 1 }}
                 />
-                <button className="btn btn-ghost" onClick={importData}>
-                  导入
-                </button>
               </div>
             </div>
           </div>

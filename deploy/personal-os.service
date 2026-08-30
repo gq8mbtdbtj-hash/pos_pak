@@ -1,0 +1,40 @@
+# systemd unit for Personal OS (pure-web) — see docs/deploy-raspberry-pi.md
+# Install: sudo cp deploy/personal-os.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now personal-os
+[Unit]
+Description=Personal OS (pure-web) server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=personalos
+Group=personalos
+WorkingDirectory=/opt/personal-os
+
+# Bind to localhost when a reverse proxy / tunnel terminates TLS (recommended).
+# Timezone drives pay-period / check-in dates. Set to your locale (China below).
+Environment=TZ=Asia/Shanghai
+Environment=POS_ADDR=127.0.0.1:8787
+Environment=POS_DATA_DIR=/opt/personal-os/data
+Environment=POS_DIST_DIR=/opt/personal-os/dist
+# The proxy/tunnel serves HTTPS, so mark the session cookie Secure:
+Environment=POS_SECURE_COOKIE=1
+# To serve HTTPS directly instead of via a proxy, drop POS_SECURE_COOKIE above and set:
+# Environment=POS_ADDR=0.0.0.0:8787
+# Environment=POS_TLS_CERT=/opt/personal-os/tls/fullchain.pem
+# Environment=POS_TLS_KEY=/opt/personal-os/tls/privkey.pem
+
+ExecStart=/opt/personal-os/personal-os-server
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/personal-os/data
+
+[Install]
+WantedBy=multi-user.target

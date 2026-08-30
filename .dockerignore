@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+dev-dist
+release
+data
+server/data
+*.log
+*.zip
+.tools
+tls
