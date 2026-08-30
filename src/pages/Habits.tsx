@@ -1,20 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, Goal, GoalDetail, HabitWithStats } from "../services/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, Goal, GoalDetail } from "../services/api";
 import InputDock from "../components/InputDock";
 import DockDateField from "../components/DockDateField";
 import PageShell from "../components/PageShell";
+import CheckinChart from "../components/CheckinChart";
 import { toastErr } from "../components/Toast";
 
-type Segment = "habits" | "goals";
-type GoalDock = "goal" | "milestone";
-
-function habitId(h: HabitWithStats) {
-  return h.habit?.id;
-}
-
-function habitName(h: HabitWithStats) {
-  return h.habit?.name ?? "未命名习惯";
-}
+type GoalDock = "goal" | "log";
+type GoalKind = "plan" | "habit" | "checkin";
+type GoalFilter = "all" | GoalKind;
 
 function statusLabel(status: Goal["status"]) {
   if (status === "done") return "已完成";
@@ -22,21 +16,38 @@ function statusLabel(status: Goal["status"]) {
   return "进行中";
 }
 
+function normalizeKind(kind: Goal["kind"] | undefined): GoalKind {
+  if (kind === "checkin") return "checkin";
+  if (kind === "habit") return "habit";
+  return "plan";
+}
+
+function kindLabel(kind: Goal["kind"] | undefined) {
+  const k = normalizeKind(kind);
+  if (k === "checkin") return "打卡";
+  if (k === "habit") return "习惯";
+  return "计划";
+}
+
+function usesDaily(kind: Goal["kind"] | undefined) {
+  const k = normalizeKind(kind);
+  return k === "habit" || k === "checkin";
+}
+
 export default function HabitsPage() {
-  const [segment, setSegment] = useState<Segment>("habits");
-  const [habits, setHabits] = useState<HabitWithStats[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<GoalDetail | null>(null);
   const [goalDock, setGoalDock] = useState<GoalDock>("goal");
-  const [name, setName] = useState("");
+  const [goalFilter, setGoalFilter] = useState<GoalFilter>("habit");
   const [goalTitle, setGoalTitle] = useState("");
   const [goalDate, setGoalDate] = useState("");
+  const [goalKind, setGoalKind] = useState<GoalKind>("habit");
+  const [startValue, setStartValue] = useState("");
+  const [targetValue, setTargetValue] = useState("");
+  const [unit, setUnit] = useState("");
+  const [logNote, setLogNote] = useState("");
+  const [logValue, setLogValue] = useState("");
   const [milestoneTitle, setMilestoneTitle] = useState("");
-  const [milestoneDue, setMilestoneDue] = useState("");
-
-  const loadHabits = useCallback(async () => {
-    setHabits(await api.habitList());
-  }, []);
 
   const refreshGoals = useCallback(async (preferId?: string | null) => {
     const list = await api.goalList();
@@ -47,7 +58,7 @@ export default function HabitsPage() {
       const still = list.find((g) => g.id === wantId);
       if (still) {
         setSelectedGoal(await api.goalDetail(still.id));
-        setGoalDock("milestone");
+        setGoalDock("log");
         return;
       }
     }
@@ -63,64 +74,81 @@ export default function HabitsPage() {
 
   const load = useCallback(async () => {
     try {
-      await Promise.all([loadHabits(), refreshGoals()]);
+      await refreshGoals();
     } catch (e) {
       toastErr(String(e));
     }
-  }, [loadHabits, refreshGoals]);
+  }, [refreshGoals]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    if (segment !== "goals") return;
     if (selectedGoal) {
-      setGoalDock("milestone");
+      setGoalDock("log");
       return;
     }
     setGoalDock("goal");
-  }, [segment, selectedGoal]);
+  }, [selectedGoal]);
 
-  const createHabit = async () => {
-    if (!name.trim()) return;
-    try {
-      await api.habitCreate({ name });
-      setName("");
-      await loadHabits();
-    } catch (e) {
-      toastErr(String(e));
-    }
-  };
-
-  const toggleHabit = async (h: HabitWithStats) => {
-    const id = habitId(h);
-    if (!id) return;
-    try {
-      if (h.checkedToday) await api.habitUncheck(id);
-      else await api.habitCheckIn(id);
-      await loadHabits();
-    } catch (e) {
-      toastErr(String(e));
-    }
-  };
-
-  const removeHabit = async (id: string | undefined) => {
-    if (!id || !confirm("确定删除此习惯？")) return;
-    try {
-      await api.habitDelete(id);
-      await loadHabits();
-    } catch (e) {
-      toastErr(String(e));
-    }
-  };
+  const filteredGoals = useMemo(() => {
+    const rank = (kind: Goal["kind"] | undefined) => {
+      const k = normalizeKind(kind);
+      if (k === "habit") return 0;
+      if (k === "checkin") return 1;
+      return 2;
+    };
+    const list =
+      goalFilter === "all"
+        ? goals
+        : goals.filter((g) => normalizeKind(g.kind) === goalFilter);
+    return [...list].sort((a, b) => rank(a.kind) - rank(b.kind));
+  }, [goals, goalFilter]);
 
   const createGoal = async () => {
     if (!goalTitle.trim()) return;
     try {
+      if (goalKind === "checkin") {
+        const start = Number(startValue);
+        const target = Number(targetValue);
+        if (!Number.isFinite(start) || !Number.isFinite(target)) {
+          toastErr("目标打卡必须填写开始值与目标值");
+          return;
+        }
+        if (start === target) {
+          toastErr("开始值与目标值不能相同");
+          return;
+        }
+        const g = await api.goalCreate({
+          title: goalTitle.trim(),
+          targetDate: goalDate || undefined,
+          kind: "checkin",
+          startValue: start,
+          targetValue: target,
+          unit: unit.trim() || undefined,
+        });
+        setGoalTitle("");
+        setGoalDate("");
+        setStartValue("");
+        setTargetValue("");
+        setUnit("");
+        await refreshGoals(g.id);
+        return;
+      }
+      if (goalKind === "habit") {
+        const g = await api.goalCreate({
+          title: goalTitle.trim(),
+          kind: "habit",
+        });
+        setGoalTitle("");
+        await refreshGoals(g.id);
+        return;
+      }
       const g = await api.goalCreate({
         title: goalTitle.trim(),
         targetDate: goalDate || undefined,
+        kind: "plan",
       });
       setGoalTitle("");
       setGoalDate("");
@@ -133,7 +161,7 @@ export default function HabitsPage() {
   const openGoal = async (id: string) => {
     try {
       setSelectedGoal(await api.goalDetail(id));
-      setGoalDock("milestone");
+      setGoalDock("log");
     } catch (e) {
       toastErr(String(e));
     }
@@ -146,13 +174,12 @@ export default function HabitsPage() {
 
   const addMilestone = async () => {
     if (!selectedGoal || !milestoneTitle.trim()) return;
+    if (normalizeKind(selectedGoal.goal.kind) !== "plan") return;
     try {
       const detail = await api.goalAddMilestone(selectedGoal.goal.id, {
         title: milestoneTitle.trim(),
-        dueDate: milestoneDue || undefined,
       });
       setMilestoneTitle("");
-      setMilestoneDue("");
       setSelectedGoal(detail);
       setGoals(await api.goalList());
     } catch (e) {
@@ -170,8 +197,46 @@ export default function HabitsPage() {
     }
   };
 
+  const addCheckin = async () => {
+    if (!selectedGoal) return;
+    const kind = normalizeKind(selectedGoal.goal.kind);
+    if (!usesDaily(kind)) return;
+    if (kind === "checkin") {
+      const valueNum = Number(logValue.trim());
+      if (!Number.isFinite(valueNum)) {
+        toastErr("请填写今日实测值");
+        return;
+      }
+      try {
+        const detail = await api.goalAddCheckin(selectedGoal.goal.id, {
+          note: logNote.trim() || undefined,
+          value: valueNum,
+        });
+        setLogNote("");
+        setLogValue("");
+        setSelectedGoal(detail);
+        setGoals(await api.goalList());
+      } catch (e) {
+        toastErr(String(e));
+      }
+      return;
+    }
+    // habit: presence only
+    try {
+      const detail = await api.goalAddCheckin(selectedGoal.goal.id, {
+        note: logNote.trim() || undefined,
+        value: 1,
+      });
+      setLogNote("");
+      setSelectedGoal(detail);
+      setGoals(await api.goalList());
+    } catch (e) {
+      toastErr(String(e));
+    }
+  };
+
   const removeMilestone = async (id: string) => {
-    if (!confirm("确定删除里程碑？")) return;
+    if (!confirm("确定删除此里程碑？")) return;
     try {
       const detail = await api.goalDeleteMilestone(id);
       setSelectedGoal(detail);
@@ -181,8 +246,19 @@ export default function HabitsPage() {
     }
   };
 
+  const removeCheckin = async (id: string) => {
+    if (!confirm("确定删除这条打卡记录？")) return;
+    try {
+      const detail = await api.goalDeleteCheckin(id);
+      setSelectedGoal(detail);
+      setGoals(await api.goalList());
+    } catch (e) {
+      toastErr(String(e));
+    }
+  };
+
   const removeGoal = async (id: string) => {
-    if (!confirm("确定删除此目标及其里程碑？")) return;
+    if (!confirm("确定删除此项及其记录？")) return;
     try {
       await api.goalDelete(id);
       setSelectedGoal(null);
@@ -193,84 +269,137 @@ export default function HabitsPage() {
     }
   };
 
-  const doneCount = selectedGoal
-    ? selectedGoal.milestones.filter((m) => m.done).length
-    : 0;
-  const totalCount = selectedGoal?.milestones.length ?? 0;
+  const selectedKind = selectedGoal ? normalizeKind(selectedGoal.goal.kind) : "plan";
+  const logLabel =
+    selectedKind === "checkin"
+      ? "今日打卡"
+      : selectedKind === "habit"
+        ? "今日习惯"
+        : "新建里程碑";
+  const doneCount = selectedGoal?.milestones.filter((m) => m.done).length ?? 0;
+  const stageCount = selectedGoal?.milestones.length ?? 0;
+  const checkinCount = selectedGoal?.checkins.length ?? 0;
+
+  const chartStart = selectedGoal?.goal.startValue ?? 0;
+  const chartTarget = selectedGoal?.goal.targetValue ?? 66;
+  const chartCurrent = selectedGoal?.goal.currentValue ?? chartStart;
+  const chartGap = selectedGoal?.goal.gap ?? chartTarget - chartCurrent;
+  const habitStreak = selectedGoal?.goal.streak ?? 0;
 
   return (
     <PageShell
       className="page-habits-goals"
       eyebrow="Growth"
-      title="习惯与目标"
+      title="养成"
       stack
       actions={
-        <div className="segmented segmented--grow" role="tablist" aria-label="切换内容区">
-          <button
-            type="button"
-            role="tab"
-            className={segment === "habits" ? "active" : ""}
-            aria-selected={segment === "habits"}
-            onClick={() => setSegment("habits")}
-          >
-            习惯
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={segment === "goals" ? "active" : ""}
-            aria-selected={segment === "goals"}
-            onClick={() => setSegment("goals")}
-          >
-            目标
-          </button>
+        <div
+          className="segmented segmented--grow"
+          role="tablist"
+          aria-label="分类筛选"
+        >
+          {(
+            [
+              ["habit", "习惯"],
+              ["checkin", "打卡"],
+              ["plan", "计划"],
+              ["all", "全部"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              className={goalFilter === id ? "active" : ""}
+              aria-selected={goalFilter === id}
+              onClick={() => setGoalFilter(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       }
       dock={
-        segment === "habits" ? (
-          <InputDock label="新建习惯">
-            <input
-              placeholder="例如：每天阅读 30 分钟"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && createHabit()}
-              data-no-tab-swipe
-            />
-            <button className="btn" type="button" onClick={createHabit}>
-              添加
-            </button>
-          </InputDock>
-        ) : (
-          <InputDock
-            label={goalDock === "milestone" ? "添加里程碑" : "新建目标"}
-            variant="composer"
-          >
-            {goals.length > 0 && (
-              <div className="segmented dock-segmented" role="tablist" aria-label="录入模式">
-                <button
-                  type="button"
-                  role="tab"
-                  className={goalDock === "goal" ? "active" : ""}
-                  aria-selected={goalDock === "goal"}
-                  onClick={startNewGoal}
+        <InputDock
+          label={goalDock === "log" ? logLabel : "新建"}
+          variant="composer"
+        >
+          {goals.length > 0 && (
+            <div className="segmented dock-segmented" role="tablist" aria-label="录入模式">
+              <button
+                type="button"
+                role="tab"
+                className={goalDock === "goal" ? "active" : ""}
+                aria-selected={goalDock === "goal"}
+                onClick={startNewGoal}
+                data-no-tab-swipe
+              >
+                新建
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={goalDock === "log" ? "active" : ""}
+                aria-selected={goalDock === "log"}
+                disabled={!selectedGoal}
+                onClick={() => selectedGoal && setGoalDock("log")}
+                data-no-tab-swipe
+              >
+                {selectedGoal
+                  ? selectedKind === "plan"
+                    ? "里程碑"
+                    : "打卡"
+                  : "记录"}
+              </button>
+            </div>
+          )}
+          {goalDock === "log" && selectedGoal ? (
+            selectedKind === "checkin" ? (
+              <>
+                <input
+                  className="dock-composer-title"
+                  placeholder={`为「${selectedGoal.goal.title}」填写备注（可选）`}
+                  value={logNote}
+                  onChange={(e) => setLogNote(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addCheckin()}
                   data-no-tab-swipe
-                >
-                  新目标
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={goalDock === "milestone" ? "active" : ""}
-                  aria-selected={goalDock === "milestone"}
-                  disabled={!selectedGoal}
-                  onClick={() => selectedGoal && setGoalDock("milestone")}
+                />
+                <div className="dock-composer-actions">
+                  <input
+                    className="dock-milestone-progress"
+                    type="number"
+                    inputMode="decimal"
+                    placeholder={`今日实测值${selectedGoal.goal.unit ? `（${selectedGoal.goal.unit}）` : ""}`}
+                    value={logValue}
+                    onChange={(e) => setLogValue(e.target.value)}
+                    data-no-tab-swipe
+                  />
+                  <button className="btn" type="button" onClick={addCheckin}>
+                    打卡
+                  </button>
+                </div>
+              </>
+            ) : selectedKind === "habit" ? (
+              <>
+                <input
+                  className="dock-composer-title"
+                  placeholder={
+                    selectedGoal.checkedToday
+                      ? `「${selectedGoal.goal.title}」今日已打卡，可改备注`
+                      : `为「${selectedGoal.goal.title}」打卡（备注可选）`
+                  }
+                  value={logNote}
+                  onChange={(e) => setLogNote(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addCheckin()}
                   data-no-tab-swipe
-                >
-                  里程碑
-                </button>
-              </div>
-            )}
-            {goalDock === "milestone" && selectedGoal ? (
+                />
+                <div className="dock-composer-actions">
+                  <button className="btn" type="button" onClick={addCheckin}>
+                    {selectedGoal.checkedToday ? "更新" : "打卡"}
+                  </button>
+                </div>
+              </>
+            ) : (
               <>
                 <input
                   className="dock-composer-title"
@@ -281,178 +410,296 @@ export default function HabitsPage() {
                   data-no-tab-swipe
                 />
                 <div className="dock-composer-actions">
-                  <DockDateField
-                    label="截止"
-                    value={milestoneDue}
-                    onChange={setMilestoneDue}
-                    ariaLabel="里程碑截止日期"
-                  />
                   <button className="btn" type="button" onClick={addMilestone}>
                     添加
                   </button>
                 </div>
               </>
-            ) : (
-              <>
-                <input
-                  className="dock-composer-title"
-                  placeholder="例如：今年读完 10 本"
-                  value={goalTitle}
-                  onChange={(e) => setGoalTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && createGoal()}
-                  data-no-tab-swipe
-                />
-                <div className="dock-composer-actions">
-                  <DockDateField
-                    label="目标日"
-                    value={goalDate}
-                    onChange={setGoalDate}
-                    ariaLabel="目标日期"
+            )
+          ) : (
+            <>
+              <div className="segmented dock-segmented" role="tablist" aria-label="类型">
+                {(
+                  [
+                    ["habit", "习惯"],
+                    ["checkin", "打卡"],
+                    ["plan", "计划"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    className={goalKind === id ? "active" : ""}
+                    aria-selected={goalKind === id}
+                    onClick={() => setGoalKind(id)}
+                    data-no-tab-swipe
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <input
+                className="dock-composer-title"
+                placeholder={
+                  goalKind === "checkin"
+                    ? "例如：减重到 65"
+                    : goalKind === "habit"
+                      ? "例如：每天阅读 30 分钟"
+                      : "例如：完成产品改版"
+                }
+                value={goalTitle}
+                onChange={(e) => setGoalTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createGoal()}
+                data-no-tab-swipe
+              />
+              {goalKind === "checkin" ? (
+                <div className="dock-composer-actions dock-composer-actions--wrap">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="开始值"
+                    value={startValue}
+                    onChange={(e) => setStartValue(e.target.value)}
+                    data-no-tab-swipe
+                  />
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    placeholder="目标值"
+                    value={targetValue}
+                    onChange={(e) => setTargetValue(e.target.value)}
+                    data-no-tab-swipe
+                  />
+                  <input
+                    placeholder="单位"
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    data-no-tab-swipe
+                    style={{ maxWidth: "4.5rem" }}
                   />
                   <button className="btn" type="button" onClick={createGoal}>
                     添加
                   </button>
                 </div>
-              </>
-            )}
-          </InputDock>
-        )
+              ) : goalKind === "habit" ? (
+                <div className="dock-composer-actions">
+                  <span className="muted" style={{ fontSize: "0.85rem" }}>
+                    66 天养成 · 漏 1 天可续
+                  </span>
+                  <button className="btn" type="button" onClick={createGoal}>
+                    添加
+                  </button>
+                </div>
+              ) : (
+                <div className="dock-composer-actions">
+                  <DockDateField
+                    label="截止日"
+                    value={goalDate}
+                    onChange={setGoalDate}
+                    ariaLabel="计划截止日期"
+                  />
+                  <button className="btn" type="button" onClick={createGoal}>
+                    添加
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </InputDock>
       }
     >
-      {segment === "habits" ? (
-          <section className="panel">
-            {habits.length === 0 ? (
-              <p className="empty-state">暂无习惯</p>
-            ) : (
-              habits.map((h) => {
-                const id = habitId(h);
-                return (
-                  <div key={id ?? habitName(h)} className="list-item">
+      <p className="muted hint" style={{ marginBottom: "0.75rem" }}>
+        计划：里程碑勾选；习惯：66 天出勤养成；打卡：起止实测值 + 折线差距。
+      </p>
+      <div className="goal-layout">
+        <section className="panel">
+          <div className="goal-panel-head">
+            <h3 className="section-label">列表 · {filteredGoals.length}</h3>
+            <button type="button" className="btn btn-ghost" onClick={startNewGoal}>
+              新建
+            </button>
+          </div>
+          {filteredGoals.length === 0 ? (
+            <p className="empty-state compact">还没有内容，用底部新建</p>
+          ) : (
+            filteredGoals.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                className={`goal-card ${selectedGoal?.goal.id === g.id ? "active" : ""}`}
+                onClick={() => openGoal(g.id)}
+              >
+                <div className="goal-card-top">
+                  <strong>
+                    <span className="goal-kind-badge">{kindLabel(g.kind)}</span>
+                    {g.title}
+                    {g.formed ? <span className="habit-formed-badge">已养成</span> : null}
+                  </strong>
+                  <span className="muted">{g.progress}%</span>
+                </div>
+                <div className="goal-progress">
+                  <div className="goal-progress-fill" style={{ width: `${g.progress}%` }} />
+                </div>
+                <div className="muted">
+                  {statusLabel(g.status)}
+                  {normalizeKind(g.kind) === "habit" && g.streak != null
+                    ? ` · 连续 ${g.streak}/66`
+                    : ""}
+                  {normalizeKind(g.kind) === "checkin" && g.gap != null
+                    ? ` · 差距 ${Number(g.gap).toFixed(Number.isInteger(g.gap) ? 0 : 1)}`
+                    : ""}
+                  {g.targetDate ? ` · 至 ${g.targetDate}` : ""}
+                </div>
+              </button>
+            ))
+          )}
+        </section>
+
+        <section className="panel">
+          {!selectedGoal ? (
+            <p className="empty-state">
+              {goals.length === 0
+                ? "还没有内容，请先用底部栏新建"
+                : "选择一项查看详情"}
+            </p>
+          ) : (
+            <>
+              <div className="debt-detail-head">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <h3>
+                    <span className="goal-kind-badge">
+                      {kindLabel(selectedGoal.goal.kind)}
+                    </span>
+                    {selectedGoal.goal.title}
+                  </h3>
+                  <p className="muted">
+                    进度 {selectedGoal.goal.progress}%
+                    {selectedKind === "habit"
+                      ? ` · 连续 ${habitStreak}/66${
+                          selectedGoal.checkedToday ? " · 今日已打卡" : ""
+                        }`
+                      : selectedKind === "checkin"
+                        ? ` · 记录 ${checkinCount} 次${
+                            selectedGoal.checkedToday ? " · 今日已打卡" : ""
+                          }`
+                        : stageCount > 0
+                          ? ` · 里程碑 ${doneCount}/${stageCount}`
+                          : ""}
+                    {selectedGoal.goal.targetDate
+                      ? ` · 截止 ${selectedGoal.goal.targetDate}`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  className="btn btn-ghost danger"
+                  onClick={() => removeGoal(selectedGoal.goal.id)}
+                >
+                  删除
+                </button>
+              </div>
+
+              {selectedKind === "checkin" ? (
+                <>
+                  <CheckinChart
+                    checkins={selectedGoal.checkins}
+                    startValue={chartStart}
+                    targetValue={chartTarget}
+                    unit={selectedGoal.goal.unit}
+                    currentValue={chartCurrent}
+                    gap={chartGap}
+                  />
+                  {selectedGoal.checkins.length === 0 ? (
+                    <p className="empty-state compact">暂无记录，用底部填写今日实测值</p>
+                  ) : (
+                    selectedGoal.checkins.map((c) => (
+                      <div key={c.id} className="list-item">
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div>{c.note || "打卡"}</div>
+                          <div className="muted">
+                            {c.date} · 值 {c.value}
+                            {selectedGoal.goal.unit ?? ""}
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-ghost danger"
+                          type="button"
+                          onClick={() => removeCheckin(c.id)}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </>
+              ) : selectedKind === "habit" ? (
+                <>
+                  <div className="habit-66-track" aria-hidden style={{ marginBottom: "0.75rem" }}>
+                    <div
+                      className="habit-66-fill"
+                      style={{
+                        width: `${Math.min(100, (habitStreak / 66) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="muted hint" style={{ marginBottom: "0.75rem" }}>
+                    漏 1 天可延续；连续 2 天未打卡则中断。
+                  </p>
+                  {selectedGoal.checkins.length === 0 ? (
+                    <p className="empty-state compact">暂无打卡，用底部一键打卡</p>
+                  ) : (
+                    selectedGoal.checkins.map((c) => (
+                      <div key={c.id} className="list-item">
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div>{c.note || "已打卡"}</div>
+                          <div className="muted">{c.date}</div>
+                        </div>
+                        <button
+                          className="btn btn-ghost danger"
+                          type="button"
+                          onClick={() => removeCheckin(c.id)}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </>
+              ) : selectedGoal.milestones.length === 0 ? (
+                <p className="empty-state compact">
+                  暂无里程碑，用底部添加后勾选完成
+                </p>
+              ) : (
+                selectedGoal.milestones.map((m) => (
+                  <div key={m.id} className="list-item">
                     <input
                       type="checkbox"
-                      checked={!!h.checkedToday}
-                      onChange={() => toggleHabit(h)}
-                      disabled={!id}
+                      checked={m.done}
+                      onChange={() => toggleMilestone(m.id, !m.done)}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div>{habitName(h)}</div>
-                      <div className="muted">
-                        连续 {h.streak ?? 0} 天 · 完成率{" "}
-                        {Number(h.completionRate ?? 0).toFixed(0)}%
+                      <div
+                        style={{
+                          textDecoration: m.done ? "line-through" : "none",
+                        }}
+                      >
+                        {m.title}
                       </div>
                     </div>
-                    <button className="btn btn-danger" onClick={() => removeHabit(id)} disabled={!id}>
+                    <button
+                      className="btn btn-ghost danger"
+                      type="button"
+                      onClick={() => removeMilestone(m.id)}
+                    >
                       删除
                     </button>
                   </div>
-                );
-              })
-            )}
-          </section>
-        ) : (
-          <>
-            <p className="muted hint" style={{ marginBottom: "0.75rem" }}>
-              选择左侧目标查看里程碑；用底部「新目标、里程碑」切换录入。
-            </p>
-            <div className="goal-layout">
-              <section className="panel">
-                <div className="goal-panel-head">
-                  <h3 className="section-label">目标列表 · {goals.length}</h3>
-                  <button type="button" className="btn btn-ghost" onClick={startNewGoal}>
-                    新建目标
-                  </button>
-                </div>
-                {goals.length === 0 ? (
-                  <p className="empty-state compact">还没有目标，点「新建目标」或用底部新建</p>
-                ) : (
-                  goals.map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      className={`goal-card ${selectedGoal?.goal.id === g.id ? "active" : ""}`}
-                      onClick={() => openGoal(g.id)}
-                    >
-                      <div className="goal-card-top">
-                        <strong>{g.title}</strong>
-                        <span className="muted">{g.progress}%</span>
-                      </div>
-                      <div className="goal-progress">
-                        <div className="goal-progress-fill" style={{ width: `${g.progress}%` }} />
-                      </div>
-                      <div className="muted">
-                        {statusLabel(g.status)}
-                        {g.targetDate ? ` · 至 ${g.targetDate}` : ""}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </section>
-
-              <section className="panel">
-                {!selectedGoal ? (
-                  <p className="empty-state">
-                    {goals.length === 0
-                      ? "还没有目标，请先用底部栏新建"
-                      : "在左侧选择一个目标查看详情"}
-                  </p>
-                ) : (
-                  <>
-                    <div className="debt-detail-head">
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <h3>{selectedGoal.goal.title}</h3>
-                        <p className="muted">
-                          进度 {selectedGoal.goal.progress}%
-                          {totalCount > 0 ? ` · 里程碑 ${doneCount}/${totalCount}` : ""}
-                          {selectedGoal.goal.targetDate
-                            ? ` · 目标日 ${selectedGoal.goal.targetDate}`
-                            : ""}
-                        </p>
-                      </div>
-                      <button
-                        className="btn btn-ghost danger"
-                        onClick={() => removeGoal(selectedGoal.goal.id)}
-                      >
-                        删除目标
-                      </button>
-                    </div>
-                    {selectedGoal.milestones.length === 0 ? (
-                      <p className="empty-state compact">
-                        暂无里程碑，用底部「里程碑」模式添加
-                      </p>
-                    ) : (
-                      selectedGoal.milestones.map((m) => (
-                        <div key={m.id} className="list-item">
-                          <input
-                            type="checkbox"
-                            checked={m.done}
-                            onChange={() => toggleMilestone(m.id, !m.done)}
-                          />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div
-                              style={{
-                                textDecoration: m.done ? "line-through" : "none",
-                              }}
-                            >
-                              {m.title}
-                            </div>
-                            {m.dueDate && <div className="muted">截止 {m.dueDate}</div>}
-                          </div>
-                          <button
-                            className="btn btn-ghost danger"
-                            type="button"
-                            onClick={() => removeMilestone(m.id)}
-                          >
-                            删除
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </>
-                )}
-              </section>
-            </div>
-          </>
-        )}
+                ))
+              )}
+            </>
+          )}
+        </section>
+      </div>
     </PageShell>
   );
 }

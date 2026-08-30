@@ -9,7 +9,6 @@ import {
   DashboardStats,
   FinanceSummary,
   Goal,
-  HabitWithStats,
   Task,
 } from "../services/api";
 
@@ -20,7 +19,6 @@ type PageId =
   | "finance"
   | "debts"
   | "knowledge"
-  | "search"
   | "settings";
 
 interface Props {
@@ -49,25 +47,27 @@ export default function Dashboard({ onNavigate }: Props) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [habits, setHabits] = useState<HabitWithStats[]>([]);
+  const [checkins, setCheckins] = useState<Goal[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [capture, setCapture] = useState("");
   const [message, setMessage] = useState("");
   const [chartView, setChartView] = useState<"trend" | "category">("trend");
 
   const load = useCallback(async () => {
-    const [s, sum, t, h, g] = await Promise.all([
+    const [s, sum, t, g] = await Promise.all([
       api.getDashboard(),
       api.financeSummary(),
       api.taskListToday(),
-      api.habitList(),
       api.goalList(),
     ]);
     setStats(s);
     setSummary(sum);
     setTasks(t);
-    setHabits(h);
-    setGoals(g.filter((x) => x.status === "active").slice(0, 4));
+    const active = g.filter((x) => x.status === "active");
+    setCheckins(
+      active.filter((x) => x.kind === "checkin" || x.kind === "habit").slice(0, 6),
+    );
+    setGoals(active.filter((x) => x.kind === "plan" || x.kind === "normal" || !x.kind).slice(0, 4));
   }, []);
 
   useEffect(() => {
@@ -95,17 +95,6 @@ export default function Dashboard({ onNavigate }: Props) {
   const toggleTask = async (task: Task) => {
     if (task.status === "done") return;
     await api.taskComplete(task.id);
-    load();
-  };
-
-  const toggleHabit = async (habit: HabitWithStats) => {
-    const id = habit.habit?.id;
-    if (!id) return;
-    if (habit.checkedToday) {
-      await api.habitUncheck(id);
-    } else {
-      await api.habitCheckIn(id);
-    }
     load();
   };
 
@@ -160,7 +149,7 @@ export default function Dashboard({ onNavigate }: Props) {
                 </strong>
               </div>
               <div className="flow-stat">
-                <span>习惯</span>
+                <span>打卡</span>
                 <strong>
                   {stats.habitsDone} / {stats.habitsTotal}
                 </strong>
@@ -255,30 +244,38 @@ export default function Dashboard({ onNavigate }: Props) {
 
           <section className="panel">
             <div className="tx-list-head">
-              <h3 className="section-label">今日习惯</h3>
+              <h3 className="section-label">今日养成</h3>
               <button type="button" className="linkish" onClick={() => onNavigate("habits")}>
                 管理
               </button>
             </div>
-            {habits.length === 0 ? (
-              <p className="empty-state compact">暂无习惯</p>
+            {checkins.length === 0 ? (
+              <p className="empty-state compact">暂无习惯或打卡</p>
             ) : (
-              habits.map((h) => (
-                <div key={h.habit?.id ?? String(h.streak)} className="list-item">
-                  <input
-                    type="checkbox"
-                    checked={!!h.checkedToday}
-                    onChange={() => toggleHabit(h)}
-                    disabled={!h.habit?.id}
-                  />
-                  <span>{h.habit?.name ?? "未命名习惯"}</span>
-                  <span className="muted">连续 {h.streak ?? 0} 天</span>
-                </div>
+              checkins.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  className="list-item list-item--btn"
+                  onClick={() => onNavigate("habits")}
+                >
+                  <span>
+                    <span className="goal-kind-badge">
+                      {g.kind === "habit" ? "习惯" : "打卡"}
+                    </span>
+                    {g.title}
+                  </span>
+                  <span className="muted">
+                    {g.kind === "habit" && g.streak != null
+                      ? `连续 ${g.streak}/66`
+                      : `${g.progress}%`}
+                  </span>
+                </button>
               ))
             )}
             {goals.length > 0 && (
               <div className="dash-goals">
-                <h4 className="section-label">进行中目标</h4>
+                <h4 className="section-label">进行中计划</h4>
                 {goals.map((g) => (
                   <button
                     key={g.id}

@@ -31,7 +31,7 @@ export function isDesktop(): boolean {
   return detectPlatform() === "desktop";
 }
 
-/** Knowledge create/update/delete/import — desktop only. Mobile is view + Q&A. */
+/** Knowledge document create/update/delete — desktop only. Categories editable on all platforms. */
 export function canEditKnowledge(): boolean {
   return isDesktop();
 }

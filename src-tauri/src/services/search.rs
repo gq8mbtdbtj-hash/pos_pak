@@ -3,7 +3,7 @@ use crate::error::AppResult;
 use crate::models::search::{DashboardStats, SearchResult};
 use crate::services::debt::DebtService;
 use crate::services::finance::FinanceService;
-use crate::services::habit::HabitService;
+use crate::services::goal::GoalService;
 use crate::services::task::TaskService;
 use rusqlite::params;
 
@@ -44,18 +44,19 @@ impl<'a> SearchService<'a> {
         })
     }
 
-    pub fn dashboard(&self) -> AppResult<DashboardStats> {
+    pub fn dashboard(&self, payday: u32) -> AppResult<DashboardStats> {
         let task_svc = TaskService::new(self.db);
-        let habit_svc = HabitService::new(self.db);
+        let goal_svc = GoalService::new(self.db);
         let finance_svc = FinanceService::new(self.db);
         let debt_svc = DebtService::new(self.db);
 
         let (tasks_done, tasks_total) = task_svc.count_today_progress()?;
-        let (habits_done, habits_total) = habit_svc.today_progress()?;
+        let (habits_done, habits_total) = goal_svc.today_checkin_progress()?;
         let today_spending = finance_svc.today_spending()?;
-        let finance = finance_svc.summary()?;
+        let finance = finance_svc.summary(payday)?;
         let overview = debt_svc.overview()?;
         let _ = debt_svc.sync_repayment_reminders();
+        let _ = goal_svc.sync_plan_reminders();
 
         Ok(DashboardStats {
             tasks_done,

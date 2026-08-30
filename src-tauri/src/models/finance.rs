@@ -88,6 +88,10 @@ pub struct FinanceSummary {
     pub today: MoneyFlow,
     pub week: MoneyFlow,
     pub month: MoneyFlow,
+    /// Balance for the current pay period only (not tied to day/week/month filter).
+    pub pay_period: MoneyFlow,
+    /// e.g. "3/1 – 3/31"
+    pub pay_period_label: String,
     pub by_category: Vec<CategorySum>,
     pub category_day: Vec<CategorySum>,
     pub category_week: Vec<CategorySum>,

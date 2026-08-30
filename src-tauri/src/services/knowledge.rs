@@ -16,10 +16,149 @@ pub struct KnowledgeService<'a> {
 impl<'a> KnowledgeService<'a> {
     pub fn new(db: &'a Database, root: PathBuf) -> AppResult<Self> {
         fs::create_dir_all(&root)?;
-        for folder in ["cpp", "graphics", "android", "linux", "ai", "work", "life", "reading"] {
-            fs::create_dir_all(root.join(folder))?;
+        // First-run only: seed default categories if the knowledge root has no folders yet.
+        let has_folder = fs::read_dir(&root)?
+            .filter_map(|e| e.ok())
+            .any(|e| e.path().is_dir());
+        if !has_folder {
+            for folder in ["cpp", "graphics", "android", "linux", "ai", "work", "life", "reading"] {
+                fs::create_dir_all(root.join(folder))?;
+            }
         }
         Ok(Self { db, root })
+    }
+
+    pub fn list_folders(&self) -> AppResult<Vec<String>> {
+        let mut folders = Vec::new();
+        if let Ok(entries) = fs::read_dir(&self.root) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        folders.push(name.to_string());
+                    }
+                }
+            }
+        }
+        folders.sort();
+        Ok(folders)
+    }
+
+    pub fn create_folder(&self, name: &str) -> AppResult<String> {
+        let folder = sanitize_folder_name(name)?;
+        let path = self.root.join(&folder);
+        if path.exists() {
+            return Err(AppError::Other(format!("分类已存在：{folder}")));
+        }
+        fs::create_dir_all(&path)?;
+        Ok(folder)
+    }
+
+    pub fn rename_folder(&self, from: &str, to: &str) -> AppResult<String> {
+        let from = sanitize_folder_name(from)?;
+        let to = sanitize_folder_name(to)?;
+        if from == to {
+            return Ok(to);
+        }
+        let old_path = self.root.join(&from);
+        let new_path = self.root.join(&to);
+        if !old_path.is_dir() {
+            return Err(AppError::NotFound(format!("分类不存在：{from}")));
+        }
+        if new_path.exists() {
+            return Err(AppError::Other(format!("分类已存在：{to}")));
+        }
+        fs::rename(&old_path, &new_path)?;
+
+        let prefix = format!("{from}/");
+        let rows: Vec<(String, String, String, String)> = self.db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT file_path, title, created_at, updated_at FROM knowledge_meta
+                 WHERE file_path LIKE ?1",
+            )?;
+            let like = format!("{from}/%");
+            let mapped = stmt.query_map(params![like], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?;
+            let mut out = Vec::new();
+            for row in mapped {
+                out.push(row?);
+            }
+            Ok(out)
+        })?;
+
+        for (old_rel, title, created, updated) in rows {
+            let new_rel = old_rel.replacen(&prefix, &format!("{to}/"), 1);
+            let tags = self.db.with_conn(|conn| {
+                get_entity_tags(conn, "knowledge_tags", "file_path", &old_rel)
+            })?;
+            let content = fs::read_to_string(self.root.join(&new_rel)).unwrap_or_default();
+            let body = strip_frontmatter(&content);
+            self.db.with_conn(|conn| {
+                let tx = conn.unchecked_transaction()?;
+                tx.execute(
+                    "DELETE FROM knowledge_meta WHERE file_path = ?1",
+                    params![old_rel],
+                )?;
+                remove_search_index(&tx, "knowledge", &old_rel)?;
+                set_entity_tags(&tx, "knowledge_tags", "file_path", &old_rel, &[])?;
+                tx.execute(
+                    "INSERT INTO knowledge_meta (file_path, title, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![new_rel, title, created, updated],
+                )?;
+                upsert_search_index(&tx, "knowledge", &new_rel, &title, &body)?;
+                if !tags.is_empty() {
+                    set_entity_tags(&tx, "knowledge_tags", "file_path", &new_rel, &tags)?;
+                }
+                tx.commit()?;
+                Ok(())
+            })?;
+        }
+
+        Ok(to)
+    }
+
+    pub fn delete_folder(&self, name: &str) -> AppResult<()> {
+        let folder = sanitize_folder_name(name)?;
+        let path = self.root.join(&folder);
+        if !path.is_dir() {
+            return Err(AppError::NotFound(format!("分类不存在：{folder}")));
+        }
+
+        let files: Vec<String> = self.db.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT file_path FROM knowledge_meta WHERE file_path LIKE ?1",
+            )?;
+            let like = format!("{folder}/%");
+            let mapped = stmt.query_map(params![like], |row| row.get::<_, String>(0))?;
+            let mut out = Vec::new();
+            for row in mapped {
+                out.push(row?);
+            }
+            Ok(out)
+        })?;
+
+        for rel in files {
+            self.delete(&rel)?;
+        }
+
+        // Remove leftover md files not in meta, then the directory.
+        if let Ok(entries) = fs::read_dir(&path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file() {
+                    let _ = fs::remove_file(&p);
+                }
+            }
+        }
+        fs::remove_dir_all(&path)?;
+        Ok(())
     }
 
     pub fn tree(&self) -> AppResult<KnowledgeTreeNode> {
@@ -313,6 +452,32 @@ fn infer_title(rel_path: &str, content: &str) -> String {
 
 fn sanitize_segment(s: &str) -> String {
     s.trim().trim_matches('/').to_string()
+}
+
+fn sanitize_folder_name(s: &str) -> AppResult<String> {
+    let name = sanitize_segment(s);
+    if name.is_empty() {
+        return Err(AppError::Other("分类名不能为空".into()));
+    }
+    if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
+        return Err(AppError::Other("分类名不合法".into()));
+    }
+    if name.chars().any(|c| "<>:\"|?*".contains(c)) {
+        return Err(AppError::Other("分类名包含非法字符".into()));
+    }
+    Ok(name)
+}
+
+fn strip_frontmatter(content: &str) -> String {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return content.to_string();
+    }
+    let rest = &trimmed[3..];
+    if let Some(end) = rest.find("\n---") {
+        return rest[end + 4..].trim_start_matches('\n').to_string();
+    }
+    content.to_string()
 }
 
 fn sanitize_filename(s: &str) -> String {

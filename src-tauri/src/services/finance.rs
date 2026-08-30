@@ -201,7 +201,8 @@ impl<'a> FinanceService<'a> {
         })
     }
 
-    pub fn summary(&self) -> AppResult<FinanceSummary> {
+    pub fn summary(&self, payday: u32) -> AppResult<FinanceSummary> {
+        let payday = payday.clamp(1, 28);
         let now = Utc::now();
         let today = now.date_naive();
         let today_start = today.and_hms_opt(0, 0, 0).unwrap().and_utc();
@@ -222,11 +223,23 @@ impl<'a> FinanceService<'a> {
             .unwrap()
             .and_utc();
 
-        let (today_flow, week_flow, month_flow) = self.db.with_conn(|conn| {
+        let (period_start, period_end) = pay_period_bounds(today, payday);
+        let period_start_dt = period_start.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let period_end_dt = period_end.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let pay_period_label = format!(
+            "{}/{} – {}/{}",
+            period_start.month(),
+            period_start.day(),
+            (period_end - Duration::days(1)).month(),
+            (period_end - Duration::days(1)).day()
+        );
+
+        let (today_flow, week_flow, month_flow, pay_period) = self.db.with_conn(|conn| {
             Ok((
                 sum_flow_since(conn, &today_start.to_rfc3339())?,
                 sum_flow_since(conn, &week_start.to_rfc3339())?,
                 sum_flow_since(conn, &month_start.to_rfc3339())?,
+                sum_flow_between(conn, &period_start_dt.to_rfc3339(), &period_end_dt.to_rfc3339())?,
             ))
         })?;
 
@@ -267,6 +280,8 @@ impl<'a> FinanceService<'a> {
             today: today_flow,
             week: week_flow,
             month: month_flow,
+            pay_period,
+            pay_period_label,
             by_category: category_month.clone(),
             category_day,
             category_week,
@@ -281,7 +296,7 @@ impl<'a> FinanceService<'a> {
     }
 
     pub fn today_spending(&self) -> AppResult<f64> {
-        Ok(self.summary()?.today.expense)
+        Ok(self.summary(1)?.today.expense)
     }
 
     fn chart_hours_today(&self, day: NaiveDate) -> AppResult<Vec<ChartBucket>> {
@@ -454,6 +469,52 @@ impl<'a> FinanceService<'a> {
         });
         Ok(out)
     }
+}
+
+/// Pay period `[start, end)` where `end` is the next payday date at 00:00.
+fn pay_period_bounds(today: NaiveDate, payday: u32) -> (NaiveDate, NaiveDate) {
+    let payday = payday.clamp(1, 28);
+    let this_month_pay = clamp_day_in_month(today.year(), today.month(), payday);
+    let (start, end) = if today >= this_month_pay {
+        let next = if today.month() == 12 {
+            clamp_day_in_month(today.year() + 1, 1, payday)
+        } else {
+            clamp_day_in_month(today.year(), today.month() + 1, payday)
+        };
+        (this_month_pay, next)
+    } else {
+        let prev = if today.month() == 1 {
+            clamp_day_in_month(today.year() - 1, 12, payday)
+        } else {
+            clamp_day_in_month(today.year(), today.month() - 1, payday)
+        };
+        (prev, this_month_pay)
+    };
+    (start, end)
+}
+
+fn clamp_day_in_month(year: i32, month: u32, day: u32) -> NaiveDate {
+    let last = last_day_of_month(
+        NaiveDate::from_ymd_opt(year, month, 1).expect("valid y-m"),
+    )
+    .day();
+    NaiveDate::from_ymd_opt(year, month, day.min(last)).expect("valid date")
+}
+
+fn sum_flow_between(conn: &rusqlite::Connection, start: &str, end: &str) -> AppResult<MoneyFlow> {
+    let income: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(amount), 0) FROM transactions
+         WHERE type = 'income' AND occurred_at >= ?1 AND occurred_at < ?2",
+        params![start, end],
+        |row| row.get(0),
+    )?;
+    let expense: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(amount), 0) FROM transactions
+         WHERE type = 'expense' AND occurred_at >= ?1 AND occurred_at < ?2",
+        params![start, end],
+        |row| row.get(0),
+    )?;
+    Ok(MoneyFlow { income, expense })
 }
 
 fn sum_flow_since(conn: &rusqlite::Connection, since: &str) -> AppResult<MoneyFlow> {

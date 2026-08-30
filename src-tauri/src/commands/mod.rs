@@ -8,7 +8,7 @@ use crate::models::finance::{
 };
 use crate::models::habit::{CreateHabitInput, HabitWithStats};
 use crate::models::goal::{
-    CreateGoalInput, CreateMilestoneInput, Goal, GoalDetail, UpdateGoalInput,
+    CreateCheckinInput, CreateGoalInput, CreateMilestoneInput, Goal, GoalDetail, UpdateGoalInput,
 };
 use crate::models::knowledge::{
     CreateKnowledgeInput, KnowledgeFile, KnowledgeTreeNode, UpdateKnowledgeInput,
@@ -583,7 +583,10 @@ pub fn sync_push(state: State<AppState>) -> AppResult<SyncPullResult> {
 
 #[tauri::command]
 pub fn get_dashboard(state: State<AppState>) -> AppResult<DashboardStats> {
-    state.with_session(|s| SearchService::new(&s.db).dashboard())
+    state.with_session(|s| {
+        let payday = crate::services::app_prefs::load(&s.data_dir)?.payday;
+        SearchService::new(&s.db).dashboard(payday)
+    })
 }
 
 #[tauri::command]
@@ -663,7 +666,11 @@ pub fn habit_delete(state: State<AppState>, id: String) -> AppResult<()> {
 
 #[tauri::command]
 pub fn goal_list(state: State<AppState>) -> AppResult<Vec<Goal>> {
-    state.with_session(|s| GoalService::new(&s.db).list())
+    state.with_session(|s| {
+        let svc = GoalService::new(&s.db);
+        let _ = svc.sync_plan_reminders();
+        svc.list()
+    })
 }
 
 #[tauri::command]
@@ -717,6 +724,23 @@ pub fn goal_delete_milestone(
 }
 
 #[tauri::command]
+pub fn goal_add_checkin(
+    state: State<AppState>,
+    goal_id: String,
+    input: CreateCheckinInput,
+) -> AppResult<GoalDetail> {
+    state.with_session(|s| GoalService::new(&s.db).add_checkin(&goal_id, input))
+}
+
+#[tauri::command]
+pub fn goal_delete_checkin(
+    state: State<AppState>,
+    checkin_id: String,
+) -> AppResult<GoalDetail> {
+    state.with_session(|s| GoalService::new(&s.db).delete_checkin(&checkin_id))
+}
+
+#[tauri::command]
 pub fn finance_create(
     state: State<AppState>,
     input: CreateTransactionInput,
@@ -745,7 +769,20 @@ pub fn finance_list(state: State<AppState>, limit: Option<i32>) -> AppResult<Vec
 
 #[tauri::command]
 pub fn finance_summary(state: State<AppState>) -> AppResult<FinanceSummary> {
-    state.with_session(|s| FinanceService::new(&s.db).summary())
+    state.with_session(|s| {
+        let payday = crate::services::app_prefs::load(&s.data_dir)?.payday;
+        FinanceService::new(&s.db).summary(payday)
+    })
+}
+
+#[tauri::command]
+pub fn prefs_get(state: State<AppState>) -> AppResult<crate::services::app_prefs::AppPrefs> {
+    state.with_session(|s| crate::services::app_prefs::load(&s.data_dir))
+}
+
+#[tauri::command]
+pub fn prefs_set_payday(state: State<AppState>, payday: u32) -> AppResult<crate::services::app_prefs::AppPrefs> {
+    state.with_session(|s| crate::services::app_prefs::set_payday(&s.data_dir, payday))
 }
 
 #[tauri::command]
@@ -904,6 +941,32 @@ pub fn knowledge_rename(
     state.with_session(|s| {
         KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.rename(&path, &new_title)
     })
+}
+
+#[tauri::command]
+pub fn knowledge_list_folders(state: State<AppState>) -> AppResult<Vec<String>> {
+    state.with_session(|s| KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.list_folders())
+}
+
+#[tauri::command]
+pub fn knowledge_create_folder(state: State<AppState>, name: String) -> AppResult<String> {
+    state.with_session(|s| KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.create_folder(&name))
+}
+
+#[tauri::command]
+pub fn knowledge_rename_folder(
+    state: State<AppState>,
+    from: String,
+    to: String,
+) -> AppResult<String> {
+    state.with_session(|s| {
+        KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.rename_folder(&from, &to)
+    })
+}
+
+#[tauri::command]
+pub fn knowledge_delete_folder(state: State<AppState>, name: String) -> AppResult<()> {
+    state.with_session(|s| KnowledgeService::new(&s.db, s.knowledge_dir.clone())?.delete_folder(&name))
 }
 
 #[tauri::command]

@@ -193,7 +193,9 @@ export default function FinancePage({
 
   const current = summary ? flow(summary, range) : null;
   const pieData = summary ? categoriesFor(summary, range) : [];
-  const net = current ? current.income - current.expense : 0;
+  const net = summary
+    ? summary.payPeriod.income - summary.payPeriod.expense
+    : 0;
   const monthNet = summary ? summary.month.income - summary.month.expense : 0;
 
   return (
@@ -266,7 +268,7 @@ export default function FinancePage({
               <strong className="amount-expense">¥{money(current.expense)}</strong>
             </div>
             <div className="flow-stat">
-              <span>结余</span>
+              <span>结余 · {summary.payPeriodLabel || "发薪周期"}</span>
               <strong className={net >= 0 ? "amount-income" : "amount-expense"}>
                 {net >= 0 ? "+" : ""}¥{money(net)}
               </strong>

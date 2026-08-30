@@ -52,19 +52,16 @@ export async function refreshLocalReminders(): Promise<void> {
   const hour = today.getHours();
 
   try {
-    const [tasks, habits, goals] = await Promise.all([
-      api.taskList(),
-      api.habitList(),
-      api.goalList(),
-    ]);
+    const [tasks, goals] = await Promise.all([api.taskList(), api.goalList()]);
 
     for (const t of tasks) {
       if (t.status === "done" || t.status === "cancelled") continue;
-      if (!t.tags?.some((x) => x.startsWith("debt-remind:") || x === "还款提醒")) continue;
+      const isDebt = t.tags?.some((x) => x.startsWith("debt-remind:") || x === "还款提醒");
+      const isPlan = t.tags?.some((x) => x.startsWith("plan-remind:") || x === "计划提醒");
+      if (!isDebt && !isPlan) continue;
       const days = daysUntilDue(t, today);
       if (days == null) continue;
       let kind: string | null = null;
-      let title = "还款提醒";
       if (days < 0) kind = "overdue";
       else if (days === 0 && hour >= 17) kind = "d0";
       else if (days === 1) kind = "d1";
@@ -72,26 +69,41 @@ export async function refreshLocalReminders(): Promise<void> {
       if (!kind) continue;
       const key = `${t.id}:${dayKey}:${kind}`;
       if (alreadySent(key)) continue;
-      if (kind === "d3") title = "还款提前提醒";
+      let title = isPlan ? "计划提醒" : "还款提醒";
+      if (isPlan) {
+        if (kind === "d3") title = "计划提前提醒";
+        else if (kind === "d1") title = "明日计划截止";
+        else title = "今日计划截止";
+      } else if (kind === "d3") title = "还款提前提醒";
       else if (kind === "d1") title = "明日还款";
       else title = "今日应还";
       await sendNotification({ title, body: t.title });
       markSent(key);
     }
 
-    const unchecked = habits.filter((h) => !h.checkedToday);
-    if (unchecked.length > 0 && hour >= 20) {
-      const key = `habits:${dayKey}`;
+    const activeCheckins = goals.filter(
+      (g) =>
+        (g.kind === "checkin" || g.kind === "habit") &&
+        g.status === "active" &&
+        !g.formed,
+    );
+    if (activeCheckins.length > 0 && hour >= 20) {
+      const key = `checkins:${dayKey}`;
       if (!alreadySent(key)) {
         await sendNotification({
-          title: "习惯打卡",
-          body: `还有 ${unchecked.length} 个习惯今天未完成`,
+          title: "养成提醒",
+          body: `还有 ${activeCheckins.length} 个习惯/打卡进行中`,
         });
         markSent(key);
       }
     }
 
-    for (const g of goals.filter((x) => x.status === "active" && x.targetDate)) {
+    for (const g of goals.filter(
+      (x) =>
+        x.status === "active" &&
+        x.targetDate &&
+        (x.kind === "plan" || x.kind === "normal" || !x.kind),
+    )) {
       const due = new Date(g.targetDate!);
       if (!Number.isFinite(due.getTime())) continue;
       const days = Math.round(
@@ -100,10 +112,11 @@ export async function refreshLocalReminders(): Promise<void> {
           86400000,
       );
       if (days !== 3 && days !== 1 && days !== 0) continue;
-      const key = `goal:${g.id}:${dayKey}`;
+      const slot = days === 3 ? "d3" : days === 1 ? "d1" : "d0";
+      const key = `plan:${g.id}:${dayKey}:${slot}`;
       if (alreadySent(key)) continue;
       await sendNotification({
-        title: days === 0 ? "目标日到了" : `目标还有 ${days} 天`,
+        title: days === 0 ? "计划截止日" : `计划还有 ${days} 天`,
         body: g.title,
       });
       markSent(key);

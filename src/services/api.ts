@@ -27,6 +27,8 @@ export interface HabitWithStats {
     enabled: boolean;
   };
   streak: number;
+  targetDays: number;
+  formed: boolean;
   completionRate: number;
   checkedToday: boolean;
 }
@@ -36,8 +38,16 @@ export interface Goal {
   title: string;
   note?: string;
   targetDate?: string;
+  kind: "plan" | "habit" | "checkin" | "normal";
   status: "active" | "done" | "paused";
   progress: number;
+  startValue?: number;
+  targetValue?: number;
+  unit?: string;
+  currentValue?: number;
+  gap?: number;
+  streak?: number;
+  formed?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,11 +61,25 @@ export interface GoalMilestone {
   taskId?: string;
   habitId?: string;
   sortOrder: number;
+  createdAt?: string;
+}
+
+export interface GoalCheckin {
+  id: string;
+  goalId: string;
+  date: string;
+  note: string;
+  value: number;
+  /** @deprecated legacy */
+  progress?: number;
+  createdAt: string;
 }
 
 export interface GoalDetail {
   goal: Goal;
   milestones: GoalMilestone[];
+  checkins: GoalCheckin[];
+  checkedToday: boolean;
 }
 
 export interface Transaction {
@@ -102,6 +126,8 @@ export interface FinanceSummary {
   today: MoneyFlow;
   week: MoneyFlow;
   month: MoneyFlow;
+  payPeriod: MoneyFlow;
+  payPeriodLabel: string;
   byCategory: CategorySum[];
   categoryDay: CategorySum[];
   categoryWeek: CategorySum[];
@@ -112,6 +138,10 @@ export interface FinanceSummary {
   debtRepaymentMonth: number;
   debtRemaining: number;
   debtMonthlyObligation: number;
+}
+
+export interface AppPrefs {
+  payday: number;
 }
 
 export interface DashboardStats {
@@ -365,8 +395,15 @@ export const api = {
 
   goalList: () => invoke<Goal[]>("goal_list"),
   goalDetail: (id: string) => invoke<GoalDetail>("goal_detail", { id }),
-  goalCreate: (input: { title: string; note?: string; targetDate?: string }) =>
-    invoke<Goal>("goal_create", { input }),
+  goalCreate: (input: {
+    title: string;
+    note?: string;
+    targetDate?: string;
+    kind?: "plan" | "habit" | "checkin" | "normal";
+    startValue?: number;
+    targetValue?: number;
+    unit?: string;
+  }) => invoke<Goal>("goal_create", { input }),
   goalUpdate: (
     id: string,
     input: {
@@ -375,17 +412,35 @@ export const api = {
       targetDate?: string | null;
       status?: string;
       progress?: number;
+      startValue?: number;
+      targetValue?: number;
+      unit?: string | null;
     },
   ) => invoke<Goal>("goal_update", { id, input }),
   goalDelete: (id: string) => invoke<void>("goal_delete", { id }),
   goalAddMilestone: (
     goalId: string,
-    input: { title: string; dueDate?: string; taskId?: string; habitId?: string },
+    input: {
+      title: string;
+      dueDate?: string;
+      taskId?: string;
+      habitId?: string;
+      progress?: number;
+    },
   ) => invoke<GoalDetail>("goal_add_milestone", { goalId, input }),
   goalSetMilestoneDone: (milestoneId: string, done: boolean) =>
     invoke<GoalDetail>("goal_set_milestone_done", { milestoneId, done }),
   goalDeleteMilestone: (milestoneId: string) =>
     invoke<GoalDetail>("goal_delete_milestone", { milestoneId }),
+  goalAddCheckin: (
+    goalId: string,
+    input: { note?: string; value?: number; progress?: number; date?: string },
+  ) => invoke<GoalDetail>("goal_add_checkin", { goalId, input }),
+  goalDeleteCheckin: (checkinId: string) =>
+    invoke<GoalDetail>("goal_delete_checkin", { checkinId }),
+
+  prefsGet: () => invoke<AppPrefs>("prefs_get"),
+  prefsSetPayday: (payday: number) => invoke<AppPrefs>("prefs_set_payday", { payday }),
 
   financeQuickAdd: (text: string) => invoke<Transaction>("finance_quick_add", { text }),
   financeUpdate: (
@@ -478,6 +533,11 @@ export const api = {
     invoke<KnowledgeFile>("knowledge_update", { path, input, platform: clientPlatform() }),
   knowledgeDelete: (path: string) =>
     invoke<void>("knowledge_delete", { path, platform: clientPlatform() }),
+  knowledgeListFolders: () => invoke<string[]>("knowledge_list_folders"),
+  knowledgeCreateFolder: (name: string) => invoke<string>("knowledge_create_folder", { name }),
+  knowledgeRenameFolder: (from: string, to: string) =>
+    invoke<string>("knowledge_rename_folder", { from, to }),
+  knowledgeDeleteFolder: (name: string) => invoke<void>("knowledge_delete_folder", { name }),
 
   search: (query: string, limit?: number) =>
     invoke<SearchResult[]>("search_query", { query, limit }),

@@ -1,3 +1,4 @@
+pub mod app_prefs;
 pub mod backup;
 pub mod crypto;
 pub mod db_crypto;

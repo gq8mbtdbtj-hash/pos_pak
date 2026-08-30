@@ -7,6 +7,9 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rusqlite::{params, OptionalExtension};
 use uuid::Uuid;
 
+/// Days of unbroken practice to treat a habit as formed.
+pub const HABIT_FORM_DAYS: i32 = 66;
+
 pub struct HabitService<'a> {
     db: &'a Database,
 }
@@ -64,11 +67,14 @@ impl<'a> HabitService<'a> {
         let mut result = Vec::new();
         for habit in habits {
             let streak = self.calc_streak(&habit.id)?;
-            let completion_rate = self.calc_completion_rate(&habit.id, 30)?;
+            let completion_rate = ((streak.min(HABIT_FORM_DAYS) as f64) / (HABIT_FORM_DAYS as f64))
+                * 100.0;
             let checked_today = self.is_checked(&habit.id, today)?;
             result.push(HabitWithStats {
                 habit,
                 streak,
+                target_days: HABIT_FORM_DAYS,
+                formed: streak >= HABIT_FORM_DAYS,
                 completion_rate,
                 checked_today,
             });
@@ -134,6 +140,7 @@ impl<'a> HabitService<'a> {
         })
     }
 
+    #[allow(dead_code)]
     pub fn today_progress(&self) -> AppResult<(i32, i32)> {
         let habits = self.list_with_stats()?;
         let total = habits.len() as i32;
@@ -176,38 +183,31 @@ impl<'a> HabitService<'a> {
         })
     }
 
+    /// Current streak toward 66-day habit formation.
+    /// A single missed day is tolerated; **two consecutive** missed days breaks the streak.
     fn calc_streak(&self, habit_id: &str) -> AppResult<i32> {
-        let mut date = Utc::now().date_naive();
+        let today = Utc::now().date_naive();
+        let mut date = today;
         let mut streak = 0;
-        loop {
+        let mut miss_run = 0;
+        for _ in 0..400 {
             if self.is_checked(habit_id, date)? {
                 streak += 1;
+                miss_run = 0;
                 date -= Duration::days(1);
-            } else if streak == 0 && date == Utc::now().date_naive() {
+                continue;
+            }
+            // Today not checked yet: don't treat as a miss.
+            if streak == 0 && date == today {
                 date -= Duration::days(1);
-            } else {
+                continue;
+            }
+            miss_run += 1;
+            if miss_run >= 2 {
                 break;
             }
+            date -= Duration::days(1);
         }
         Ok(streak)
-    }
-
-    fn calc_completion_rate(&self, habit_id: &str, days: i32) -> AppResult<f64> {
-        let end = Utc::now().date_naive();
-        let start = end - Duration::days(days as i64 - 1);
-        let completed = self.db.with_conn(|conn| {
-            conn.query_row(
-                "SELECT COUNT(*) FROM habit_records
-                 WHERE habit_id = ?1 AND completed = 1 AND date BETWEEN ?2 AND ?3",
-                params![
-                    habit_id,
-                    start.format("%Y-%m-%d").to_string(),
-                    end.format("%Y-%m-%d").to_string(),
-                ],
-                |row| row.get::<_, i32>(0),
-            )
-            .map_err(AppError::from)
-        })?;
-        Ok((completed as f64 / days as f64) * 100.0)
     }
 }

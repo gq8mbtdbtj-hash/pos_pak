@@ -11,7 +11,6 @@ import Habits from "./pages/Habits";
 import Finance from "./pages/Finance";
 import Debts from "./pages/Debts";
 import Knowledge from "./pages/Knowledge";
-import Search from "./pages/Search";
 import Settings from "./pages/Settings";
 import type { VaultStatus } from "./services/api";
 import { isMobile } from "./lib/platform";
@@ -24,7 +23,6 @@ const PAGES = [
   { id: "habits", label: "养成", mobile: true },
   { id: "finance", label: "记账", mobile: true },
   { id: "knowledge", label: "知识库", mobile: true },
-  { id: "search", label: "搜索", mobile: false },
   { id: "settings", label: "设置", mobile: true },
 ] as const;
 
@@ -71,8 +69,6 @@ function App() {
         return <Debts onNavigate={setPage} />;
       case "knowledge":
         return <Knowledge />;
-      case "search":
-        return <Search />;
       case "settings":
         return (
           <Settings

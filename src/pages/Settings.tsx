@@ -78,6 +78,8 @@ export default function SettingsPage({ onLocked }: Props) {
   const [newPw, setNewPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<SyncPullResult | null>(null);
+  const [payday, setPayday] = useState(1);
+  const [paydayBusy, setPaydayBusy] = useState(false);
 
   const applyRemotes = (view: SyncRemotesView) => {
     setRemotesView({
@@ -93,6 +95,12 @@ export default function SettingsPage({ onLocked }: Props) {
       try {
         const view = await api.syncListRemotes();
         applyRemotes(view);
+      } catch {
+        /* ignore */
+      }
+      try {
+        const prefs = await api.prefsGet();
+        setPayday(Math.min(28, Math.max(1, prefs.payday || 1)));
       } catch {
         /* ignore */
       }
@@ -517,6 +525,45 @@ export default function SettingsPage({ onLocked }: Props) {
                   )}
                 </>
               )}
+            </div>
+          </section>
+
+          <section className="settings-group">
+            <p className="settings-group__label">记账</p>
+            <div className="settings-group__card settings-menu">
+              <div className="settings-menu__item settings-menu__item--static">
+                <span className="settings-menu__text">
+                  <strong>发薪日</strong>
+                  <span className="muted">结余按发薪周期计算（1–28 日）</span>
+                </span>
+                <label className="settings-payday">
+                  <span className="sr-only">发薪日</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={28}
+                    value={payday}
+                    disabled={paydayBusy || !status?.unlocked}
+                    onChange={(e) => setPayday(Number(e.target.value))}
+                    onBlur={async () => {
+                      const day = Math.min(28, Math.max(1, Math.round(payday) || 1));
+                      setPayday(day);
+                      if (!status?.unlocked) return;
+                      setPaydayBusy(true);
+                      try {
+                        const prefs = await api.prefsSetPayday(day);
+                        setPayday(prefs.payday);
+                        showToast("ok", `发薪日已设为每月 ${prefs.payday} 日`);
+                      } catch (e) {
+                        showToast("err", errText(e));
+                      } finally {
+                        setPaydayBusy(false);
+                      }
+                    }}
+                  />
+                  <span>日</span>
+                </label>
+              </div>
             </div>
           </section>
 

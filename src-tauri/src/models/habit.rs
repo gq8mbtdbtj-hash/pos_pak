@@ -53,6 +53,10 @@ pub struct HabitRecord {
 pub struct HabitWithStats {
     pub habit: Habit,
     pub streak: i32,
+    /// Continuous days required to form the habit (66).
+    pub target_days: i32,
+    /// True when streak has reached target_days.
+    pub formed: bool,
     pub completion_rate: f64,
     pub checked_today: bool,
 }

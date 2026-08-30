@@ -199,8 +199,12 @@ impl Database {
                     title TEXT NOT NULL,
                     note TEXT,
                     target_date TEXT,
+                    kind TEXT NOT NULL DEFAULT 'plan',
                     status TEXT NOT NULL DEFAULT 'active',
                     progress INTEGER NOT NULL DEFAULT 0,
+                    start_value REAL,
+                    target_value REAL,
+                    unit TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -215,6 +219,17 @@ impl Database {
                     habit_id TEXT,
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS goal_checkins (
+                    id TEXT PRIMARY KEY,
+                    goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    note TEXT NOT NULL DEFAULT '',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    value REAL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(goal_id, date)
                 );
                 ",
             )?;
@@ -252,6 +267,22 @@ impl Database {
                 "ALTER TABLE debts ADD COLUMN opening_remaining REAL",
                 [],
             );
+            let _ = conn.execute(
+                "ALTER TABLE goals ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'",
+                [],
+            );
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS goal_checkins (
+                    id TEXT PRIMARY KEY,
+                    goal_id TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    note TEXT NOT NULL DEFAULT '',
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    value REAL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(goal_id, date)
+                );",
+            )?;
             // Legacy rows: treat full amount as principal so repayment still reduces余额.
             conn.execute(
                 "UPDATE repayment_installments
@@ -292,6 +323,7 @@ impl Database {
                  WHERE opening_remaining IS NULL",
                 [],
             )?;
+            crate::services::goal::migrate_schema_and_habits(conn)?;
             Ok(())
         })
     }
